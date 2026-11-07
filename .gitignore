@@ -1,0 +1,20 @@
+# --- Flutter / Dart (o app/ tem o proprio .gitignore; aqui reforcamos)
+app/build/
+app/.dart_tool/
+
+# --- Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# --- Fotos enviadas durante os testes
+backend/uploads/
+
+# --- Sistema e editores
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
