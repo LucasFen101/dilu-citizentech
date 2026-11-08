@@ -171,3 +171,21 @@ SELECT (SELECT COUNT(*) FROM usuario)                                          A
        (SELECT COUNT(*) FROM pedido_ajuda WHERE tipo = 'AJUDA' AND status = 'ATENDIDO') AS pedidos_atendidos,
        (SELECT COUNT(*) FROM notificacao WHERE tipo = 'RISCO')                 AS avisos_risco
   FROM dual;
+
+-- Resumo pessoal de cada morador (aba "Conta" do app).
+CREATE OR REPLACE VIEW vw_resumo_usuario AS
+SELECT u.id_usuario,
+       (SELECT COUNT(*) FROM alagamento a
+         WHERE a.id_usuario = u.id_usuario)                                      AS relatos_total,
+       (SELECT COUNT(*) FROM alagamento a
+         WHERE a.id_usuario = u.id_usuario AND a.status = 'ATIVO')               AS relatos_ativos,
+       (SELECT COUNT(*) FROM alagamento a
+         WHERE a.id_usuario = u.id_usuario AND a.status = 'RESOLVIDO')           AS relatos_resolvidos,
+       (SELECT COUNT(*) FROM confirmacao_alagamento c
+          JOIN alagamento a ON a.id_alagamento = c.id_alagamento
+         WHERE a.id_usuario = u.id_usuario)                                      AS confirmacoes_recebidas,
+       (SELECT COUNT(*) FROM confirmacao_alagamento c
+         WHERE c.id_usuario = u.id_usuario)                                      AS confirmacoes_dadas,
+       (SELECT COUNT(*) FROM pedido_ajuda p
+         WHERE p.id_usuario = u.id_usuario AND p.tipo = 'AJUDA')                 AS pedidos_ajuda
+  FROM usuario u;

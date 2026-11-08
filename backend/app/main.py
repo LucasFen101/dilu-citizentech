@@ -126,6 +126,39 @@ def me(uid: int = Depends(current_user_id)):
     return user
 
 
+@app.get("/me/resumo", tags=["auth"])
+def meu_resumo(uid: int = Depends(current_user_id)):
+    """Numeros pessoais do usuario (view VW_RESUMO_USUARIO): relatos, confirmacoes, pedidos de ajuda."""
+    with db.transaction() as conn:
+        resumo = db.query_one(
+            conn,
+            """SELECT relatos_total, relatos_ativos, relatos_resolvidos,
+                      confirmacoes_recebidas, confirmacoes_dadas, pedidos_ajuda
+                 FROM vw_resumo_usuario WHERE id_usuario = :usr""",
+            {"usr": uid},
+        )
+    if not resumo:
+        raise HTTPException(status_code=401, detail="Usuario nao encontrado.")
+    return resumo
+
+
+@app.get("/me/relatos", tags=["auth"])
+def meus_relatos(uid: int = Depends(current_user_id)):
+    """Alagamentos que o proprio usuario relatou (mais recentes primeiro)."""
+    with db.transaction() as conn:
+        return db.query(
+            conn,
+            """SELECT a.id_alagamento, a.gravidade, a.descricao, a.status, a.criado_em,
+                      b.nome AS bairro,
+                      (SELECT COUNT(*) FROM confirmacao_alagamento c
+                        WHERE c.id_alagamento = a.id_alagamento) AS confirmacoes
+                 FROM alagamento a LEFT JOIN bairro b ON b.id_bairro = a.id_bairro
+                WHERE a.id_usuario = :usr
+                ORDER BY a.criado_em DESC
+                FETCH FIRST 50 ROWS ONLY""",
+            {"usr": uid},
+        )
+
 # -------------------------------------------------------------- contatos
 @app.get("/contatos", tags=["contatos"])
 def listar_contatos(uid: int = Depends(current_user_id)):

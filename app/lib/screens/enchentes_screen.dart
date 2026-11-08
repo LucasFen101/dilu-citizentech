@@ -8,6 +8,7 @@ import '../risco_enchente.dart';
 import '../services.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'dashboard_screen.dart';
 import 'map_screen.dart';
 
 /// Aba principal de enchentes: risco estimado automaticamente (não depende de
@@ -20,7 +21,7 @@ class EnchentesScreen extends StatefulWidget {
 }
 
 class _EnchentesScreenState extends State<EnchentesScreen> {
-  int _aba = 0; // 0 = risco estimado, 1 = relatos da comunidade
+  int _aba = 0; // 0 = risco estimado, 1 = relatos da comunidade, 2 = painel por bairro
 
   @override
   Widget build(BuildContext context) {
@@ -33,8 +34,9 @@ class _EnchentesScreenState extends State<EnchentesScreen> {
           child: SegmentedButton<int>(
             showSelectedIcon: false,
             segments: const [
-              ButtonSegment(value: 0, label: Text('Risco estimado'), icon: Icon(Icons.flood_outlined, size: 18)),
+              ButtonSegment(value: 0, label: Text('Risco'), icon: Icon(Icons.flood_outlined, size: 18)),
               ButtonSegment(value: 1, label: Text('Relatos'), icon: Icon(Icons.people_outline, size: 18)),
+              ButtonSegment(value: 2, label: Text('Painel'), icon: Icon(Icons.bar_chart, size: 18)),
             ],
             selected: {_aba},
             onSelectionChanged: (s) => setState(() => _aba = s.first),
@@ -42,7 +44,7 @@ class _EnchentesScreenState extends State<EnchentesScreen> {
         ),
       ),
       const Divider(height: 1),
-      Expanded(child: _aba == 0 ? const _RiscoView() : const MapScreen()),
+      Expanded(child: switch (_aba) { 0 => const _RiscoView(), 1 => const MapScreen(), _ => const DashboardScreen() }),
     ]);
   }
 }

@@ -157,6 +157,7 @@ ThemeData construirTema() {
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(color: kSinal),
     dividerColor: kLinha,
+    dividerTheme: const DividerThemeData(color: kLinha, thickness: 1),
   );
 }
 

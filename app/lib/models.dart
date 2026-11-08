@@ -341,3 +341,62 @@ class CelulaClima {
   /// Está chovendo agora (volume medido ou código de chuva).
   bool get chovendo => (chuvaMm ?? 0) >= 0.1 || (codigo != null && codigoChuva(codigo!));
 }
+
+/// Números pessoais do usuário (view VW_RESUMO_USUARIO do Oracle).
+class ResumoUsuario {
+  final int relatosTotal;
+  final int relatosAtivos;
+  final int relatosResolvidos;
+  final int confirmacoesRecebidas;
+  final int confirmacoesDadas;
+  final int pedidosAjuda;
+
+  ResumoUsuario({
+    required this.relatosTotal,
+    required this.relatosAtivos,
+    required this.relatosResolvidos,
+    required this.confirmacoesRecebidas,
+    required this.confirmacoesDadas,
+    required this.pedidosAjuda,
+  });
+
+  factory ResumoUsuario.fromJson(Map<String, dynamic> j) => ResumoUsuario(
+        relatosTotal: (j['relatos_total'] as num).toInt(),
+        relatosAtivos: (j['relatos_ativos'] as num).toInt(),
+        relatosResolvidos: (j['relatos_resolvidos'] as num).toInt(),
+        confirmacoesRecebidas: (j['confirmacoes_recebidas'] as num).toInt(),
+        confirmacoesDadas: (j['confirmacoes_dadas'] as num).toInt(),
+        pedidosAjuda: (j['pedidos_ajuda'] as num).toInt(),
+      );
+}
+
+/// Um alagamento que o próprio usuário relatou.
+class MeuRelato {
+  final int id;
+  final int gravidade;
+  final String? descricao;
+  final String status; // ATIVO, RESOLVIDO ou EXPIRADO
+  final DateTime? criadoEm;
+  final String? bairro;
+  final int confirmacoes;
+
+  MeuRelato({
+    required this.id,
+    required this.gravidade,
+    required this.status,
+    required this.confirmacoes,
+    this.descricao,
+    this.criadoEm,
+    this.bairro,
+  });
+
+  factory MeuRelato.fromJson(Map<String, dynamic> j) => MeuRelato(
+        id: j['id_alagamento'] as int,
+        gravidade: (j['gravidade'] as num).toInt(),
+        descricao: j['descricao'] as String?,
+        status: j['status'] as String,
+        criadoEm: _data(j['criado_em']),
+        bairro: j['bairro'] as String?,
+        confirmacoes: (j['confirmacoes'] as num).toInt(),
+      );
+}

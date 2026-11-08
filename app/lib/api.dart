@@ -94,6 +94,13 @@ class Api {
   static Future<Map<String, dynamic>> eu() async =>
       Map<String, dynamic>.from(await _enviar(() => http.get(_u('/me'), headers: _json)));
 
+  static Future<ResumoUsuario> resumo() async =>
+      ResumoUsuario.fromJson(Map<String, dynamic>.from(await _enviar(() => http.get(_u('/me/resumo'), headers: _json))));
+
+  static Future<List<MeuRelato>> meusRelatos() async {
+    final r = await _enviar(() => http.get(_u('/me/relatos'), headers: _json)) as List;
+    return r.map((e) => MeuRelato.fromJson(e)).toList();
+  }
   // ---------------------------------------------------------- contatos
   static Future<List<Contato>> contatos() async {
     final r = await _enviar(() => http.get(_u('/contatos'), headers: _json)) as List;

@@ -6,14 +6,14 @@ import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'clima_screen.dart';
-import 'dashboard_screen.dart';
+import 'conta_screen.dart';
 import 'enchentes_screen.dart';
 import 'notifications_screen.dart';
 import 'shelters_screen.dart';
 import 'sos_screen.dart';
 
 /// Estrutura principal: barra de navegação com as 5 áreas do app.
-/// Os avisos ficam no sino, no topo da tela.
+/// Os avisos ficam no sino, no topo da tela; sair da conta fica na aba Conta.
 class HomeShell extends StatefulWidget {
   final Future<void> Function() aoSair;
   const HomeShell({super.key, required this.aoSair});
@@ -63,24 +63,16 @@ class _HomeShellState extends State<HomeShell> {
     _atualizarBadge();
   }
 
-  Future<void> _confirmarSaida() async {
-    final sair = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sair da conta?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sair')),
-        ],
-      ),
-    );
-    if (sair == true) await widget.aoSair();
-  }
-
   @override
   Widget build(BuildContext context) {
-    const titulos = ['Dilu', 'Clima', 'Abrigos e dicas', 'Emergência', 'Risco por bairro'];
-    const telas = <Widget>[EnchentesScreen(), ClimaScreen(), SheltersScreen(), SosScreen(), DashboardScreen()];
+    const titulos = ['Dilu', 'Clima', 'Abrigos e dicas', 'Emergência', 'Minha conta'];
+    final telas = <Widget>[
+      const EnchentesScreen(),
+      const ClimaScreen(),
+      const SheltersScreen(),
+      const SosScreen(),
+      ContaScreen(aoSair: widget.aoSair),
+    ];
     return Scaffold(
       appBar: AppBar(
         title: _aba == 0 ? const DiluLogo(tamanho: 32) : Text(titulos[_aba]),
@@ -95,7 +87,6 @@ class _HomeShellState extends State<HomeShell> {
             ),
             onPressed: _abrirAvisos,
           ),
-          IconButton(tooltip: 'Sair da conta', icon: const Icon(Icons.logout_outlined), onPressed: _confirmarSaida),
         ],
       ),
       // sem IndexedStack: cada aba recarrega os dados ao ser aberta e libera memória ao sair
@@ -114,7 +105,7 @@ class _HomeShellState extends State<HomeShell> {
               selectedIcon: Icon(Icons.crisis_alert, color: kBrasa),
               label: 'SOS',
             ),
-            NavigationDestination(icon: Icon(Icons.bar_chart_outlined), selectedIcon: Icon(Icons.bar_chart), label: 'Painel'),
+            NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Conta'),
           ],
         ),
       ),

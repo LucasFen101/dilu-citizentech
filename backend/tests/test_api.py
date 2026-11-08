@@ -110,6 +110,13 @@ def test_fluxo_completo(client):
     abrigos = client.get("/abrigos", headers=ana, params={"latitude": MOOCA[0], "longitude": MOOCA[1]}).json()
     assert abrigos[0]["bairro"] == "Mooca"
 
+    # resumo pessoal e lista dos meus relatos (aba Conta)
+    meu = client.get("/me/resumo", headers=ana).json()
+    assert meu["relatos_total"] == 1 and meu["relatos_ativos"] == 1 and meu["confirmacoes_recebidas"] == 1
+    assert client.get("/me/resumo", headers=bruno).json()["confirmacoes_dadas"] == 1
+    relatos = client.get("/me/relatos", headers=ana).json()
+    assert len(relatos) == 1 and relatos[0]["confirmacoes"] == 1 and relatos[0]["status"] == "ATIVO"
+
     # numeros gerais (view do Oracle)
     n = client.get("/dilu/numeros", headers=ana).json()
     assert n["relatos_total"] >= 1 and n["confirmacoes"] >= 1 and n["moradores"] >= 2

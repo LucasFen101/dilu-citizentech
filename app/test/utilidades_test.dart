@@ -159,4 +159,31 @@ void main() {
       expect(cidadeMaisProxima(cs, const LatLng(-20, -20)), isNull);
     });
   });
+
+  group('conta', () {
+    test('resumo e relatos do usuário são lidos do JSON da API', () {
+      final r = ResumoUsuario.fromJson({
+        'relatos_total': 3,
+        'relatos_ativos': 1,
+        'relatos_resolvidos': 2,
+        'confirmacoes_recebidas': 5,
+        'confirmacoes_dadas': 4,
+        'pedidos_ajuda': 0,
+      });
+      expect(r.relatosTotal, 3);
+      expect(r.confirmacoesRecebidas, 5);
+
+      final m = MeuRelato.fromJson({
+        'id_alagamento': 9,
+        'gravidade': 2,
+        'descricao': null,
+        'status': 'ATIVO',
+        'criado_em': '2026-11-08T10:00:00',
+        'bairro': 'Mooca',
+        'confirmacoes': 1,
+      });
+      expect(m.status, 'ATIVO');
+      expect(m.bairro, 'Mooca');
+    });
+  });
 }
