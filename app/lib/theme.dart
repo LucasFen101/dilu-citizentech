@@ -253,6 +253,41 @@ const paradasUmidade = <(double, Color)>[
   (100, Color(0xFF145A66)),
 ];
 
+/// Qualidade do ar (US AQI): do ar limpo (verde-água) ao perigoso (roxo).
+const paradasAr = <(double, Color)>[
+  (0, Color(0xFF7CC4A4)),
+  (50, Color(0xFFD9D27A)),
+  (100, Color(0xFFF0B84A)),
+  (150, Color(0xFFE4572E)),
+  (200, Color(0xFF9E1F2E)),
+  (300, Color(0xFF5B1A4A)),
+];
+
+Color corAr(double aqi) => _escala(aqi, paradasAr);
+
+String rotuloAr(int aqi) => aqi <= 50
+    ? 'Ar bom'
+    : (aqi <= 100 ? 'Ar moderado' : (aqi <= 150 ? 'Ruim p/ sensíveis' : (aqi <= 200 ? 'Ar ruim' : (aqi <= 300 ? 'Muito ruim' : 'Perigoso'))));
+
+/// Ícone do tempo pelo código WMO (Open-Meteo).
+IconData iconeTempo(int c) {
+  if (c <= 1) return Icons.wb_sunny_outlined;
+  if (c == 2) return Icons.wb_cloudy_outlined;
+  if (c == 3) return Icons.cloud_outlined;
+  if (c == 45 || c == 48) return Icons.foggy;
+  if (c >= 51 && c <= 57) return Icons.grain;
+  if (c >= 95) return Icons.thunderstorm_outlined;
+  return Icons.umbrella_outlined;
+}
+
+/// Índice UV pelas faixas da OMS.
+String rotuloUv(double uv) =>
+    uv < 3 ? 'UV baixo' : (uv < 6 ? 'UV moderado' : (uv < 8 ? 'UV alto' : (uv < 11 ? 'UV muito alto' : 'UV extremo')));
+
+Color corUv(double uv) => uv < 3
+    ? const Color(0xFF7CC4A4)
+    : (uv < 6 ? const Color(0xFFE0C341) : (uv < 8 ? const Color(0xFFF08C2E) : (uv < 11 ? const Color(0xFFD63A2F) : const Color(0xFF7B3FA0))));
+
 Color corChuva(double mm) => _escala(mm, paradasChuva);
 Color corTemperatura(double c) => _escala(c, paradasTemperatura);
 Color corUmidade(double u) => _escala(u, paradasUmidade);

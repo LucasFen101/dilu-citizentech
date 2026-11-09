@@ -232,11 +232,70 @@ class Calor {
   }
 }
 
-/// Chuva + calor juntos (um único pedido à API de previsão).
+/// Qualidade do ar (Open-Meteo Air Quality, índice americano US AQI).
+class QualidadeAr {
+  final int aqi; // 0 a 500
+  final double? pm25; // partículas finas, µg/m³ (fumaça de queimadas, trânsito)
+  final double? pm10;
+
+  QualidadeAr({required this.aqi, this.pm25, this.pm10});
+
+  /// Faixas oficiais do US AQI agrupadas nos quatro níveis do Dilu.
+  String get nivel => nivelAr(aqi);
+}
+
+String nivelAr(int aqi) {
+  if (aqi > 200) return 'CRITICO';
+  if (aqi > 150) return 'ALTO';
+  if (aqi > 100) return 'MODERADO';
+  return 'BAIXO';
+}
+
+/// Chuva + calor + ar juntos (previsão e qualidade do ar pedidas em paralelo).
 class Clima {
   final Chuva chuva;
   final Calor calor;
-  Clima({required this.chuva, required this.calor});
+  final QualidadeAr? ar;
+  Clima({required this.chuva, required this.calor, this.ar});
+}
+
+/// Previsão de um dia (para o gráfico de 7 dias da cidade).
+class PrevisaoDia {
+  final DateTime data;
+  final int codigo;
+  final double maxima;
+  final double minima;
+  final double chuvaMm;
+  final int probChuva; // %
+  final double uvMax;
+
+  PrevisaoDia({
+    required this.data,
+    required this.codigo,
+    required this.maxima,
+    required this.minima,
+    required this.chuvaMm,
+    required this.probChuva,
+    required this.uvMax,
+  });
+}
+
+/// Lê o bloco "daily" da API de previsão.
+List<PrevisaoDia> previsaoDiaria(Map<String, dynamic> daily) {
+  final dias = (daily['time'] as List).cast<String>();
+  double v(String k, int i) => ((daily[k] as List)[i] as num?)?.toDouble() ?? 0;
+  return [
+    for (var i = 0; i < dias.length; i++)
+      PrevisaoDia(
+        data: DateTime.parse(dias[i]),
+        codigo: v('weather_code', i).toInt(),
+        maxima: v('temperature_2m_max', i),
+        minima: v('temperature_2m_min', i),
+        chuvaMm: v('precipitation_sum', i),
+        probChuva: v('precipitation_probability_max', i).round(),
+        uvMax: v('uv_index_max', i),
+      ),
+  ];
 }
 
 /// Um alerta de clima para mostrar ao usuário.
@@ -263,6 +322,22 @@ List<AlertaClima> alertasDoClima(Clima c) {
       'Sensação de até ${c.calor.sensacaoMax.toStringAsFixed(0)} °C e UV ${c.calor.uvMax.toStringAsFixed(0)}. '
           'Beba água, evite o sol entre 10h e 16h e redobre o cuidado com idosos e crianças.',
       c.calor.nivel,
+    ));
+  } else if (c.calor.uvMax >= 8) {
+    // mesmo sem calor forte, o sol pode queimar (UV 8+ é "muito alto")
+    lista.add(AlertaClima(
+      'Índice UV muito alto',
+      'UV de até ${c.calor.uvMax.toStringAsFixed(0)} nas próximas horas. Use protetor solar, chapéu e evite o sol entre 10h e 16h.',
+      c.calor.uvMax >= 11 ? 'ALTO' : 'MODERADO',
+    ));
+  }
+  final ar = c.ar;
+  if (ar != null && ar.nivel != 'BAIXO') {
+    lista.add(AlertaClima(
+      ar.nivel == 'MODERADO' ? 'Ar ruim para grupos sensíveis' : 'Qualidade do ar ruim',
+      'Índice ${ar.aqi}${ar.pm25 != null ? ' (partículas finas: ${ar.pm25!.round()} µg/m³)' : ''}. '
+          'Evite exercícios ao ar livre; crianças, idosos e quem tem asma devem ficar em casa com as janelas fechadas.',
+      ar.nivel,
     ));
   }
   return lista;
@@ -319,7 +394,7 @@ String descricaoTempo(int c) {
   return 'Tempo instável';
 }
 
-/// Uma região (hexágono) do mapa de clima, com a previsão daquele ponto.
+/// Uma cidade do mapa de clima, com a previsão daquele ponto.
 class CelulaClima {
   final LatLng centro;
   final List<LatLng> vertices; // vazio quando a célula é uma cidade (ponto)
@@ -333,6 +408,9 @@ class CelulaClima {
   double? chuva6hMm; // mm previstos nas próximas 6h
   double? ventoKmh;
   int? codigo; // código WMO
+  double? uv; // índice UV agora
+  int? aqi; // qualidade do ar (US AQI)
+  double? pm25; // partículas finas, µg/m³
 
   CelulaClima({required this.centro, this.vertices = const [], this.nome, this.uf, this.regiao});
 

@@ -69,8 +69,54 @@ Future<LatLng?> posicaoAtual() async {
   }
 }
 
-/// Previsão de chuva e calor das próximas 12 horas (Open-Meteo, gratuita e sem chave).
+/// Qualidade do ar agora num ponto (Open-Meteo Air Quality, gratuita e sem chave).
+Future<QualidadeAr?> buscarQualidadeAr(double lat, double lon) async {
+  try {
+    final uri = Uri.https('air-quality-api.open-meteo.com', '/v1/air-quality', {
+      'latitude': '$lat',
+      'longitude': '$lon',
+      'current': 'us_aqi,pm2_5,pm10',
+      'timezone': 'auto',
+    });
+    final r = await http.get(uri).timeout(const Duration(seconds: 10));
+    if (r.statusCode != 200) return null;
+    final cur = jsonDecode(r.body)['current'] as Map<String, dynamic>;
+    final aqi = cur['us_aqi'] as num?;
+    if (aqi == null) return null;
+    return QualidadeAr(aqi: aqi.round(), pm25: (cur['pm2_5'] as num?)?.toDouble(), pm10: (cur['pm10'] as num?)?.toDouble());
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Previsão dos próximos 7 dias (máxima, mínima, chuva, UV) para a ficha da cidade.
+Future<List<PrevisaoDia>?> buscarPrevisao7Dias(double lat, double lon) async {
+  try {
+    final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
+      'latitude': lat.toStringAsFixed(3),
+      'longitude': lon.toStringAsFixed(3),
+      'daily': 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max',
+      'forecast_days': '7',
+      'timezone': 'auto',
+    });
+    final r = await http.get(uri).timeout(const Duration(seconds: 12));
+    if (r.statusCode != 200) return null;
+    return previsaoDiaria(jsonDecode(r.body)['daily'] as Map<String, dynamic>);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Previsão de chuva, calor e qualidade do ar das próximas 12 horas.
+/// A previsão e o ar são pedidos em paralelo; se o ar falhar, o resto continua.
 Future<Clima?> buscarClima(double lat, double lon) async {
+  final ar = buscarQualidadeAr(lat, lon);
+  final clima = await _buscarPrevisao12h(lat, lon);
+  if (clima == null) return null;
+  return Clima(chuva: clima.chuva, calor: clima.calor, ar: await ar);
+}
+
+Future<Clima?> _buscarPrevisao12h(double lat, double lon) async {
   try {
     final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
       'latitude': '$lat',

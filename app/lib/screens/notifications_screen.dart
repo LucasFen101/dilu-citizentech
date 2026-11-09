@@ -65,7 +65,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _ => kAgua,
       };
 
-  /// Bloco no topo: alertas do clima (chuva e calor) ou "tudo tranquilo".
+  /// Bloco no topo: alertas do clima (chuva, calor, UV e ar) ou "tudo tranquilo".
   Widget _blocoClima() {
     if (_clima == null) return const SizedBox.shrink();
     final alertas = alertasDoClima(_clima!);
@@ -74,7 +74,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         child: ListTile(
           leading: Icon(Icons.check_circle_outline, color: kMusgo),
           title: Text('Clima sem alertas nas próximas 12h'),
-          subtitle: Text('Sem chuva forte nem calor extremo previstos para a sua região.'),
+          subtitle: Text('Sem chuva forte, calor extremo, UV muito alto ou ar ruim previstos para a sua região.'),
         ),
       );
     }
@@ -102,7 +102,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_carregando) return const Center(child: CircularProgressIndicator());
+    if (_carregando) return const Esqueleto();
     final fmt = DateFormat('dd/MM HH:mm');
     return RefreshIndicator(
       onRefresh: () async {

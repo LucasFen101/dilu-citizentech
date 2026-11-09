@@ -1,6 +1,7 @@
 import 'package:alerta_enchente/cidades_br.dart';
 import 'package:alerta_enchente/clima_grade.dart';
 import 'package:alerta_enchente/models.dart';
+import 'package:alerta_enchente/radar.dart';
 import 'package:alerta_enchente/risco_enchente.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:alerta_enchente/services.dart';
@@ -184,6 +185,64 @@ void main() {
       });
       expect(m.status, 'ATIVO');
       expect(m.bairro, 'Mooca');
+    });
+  });
+  group('ar, UV, semana e radar', () {
+    test('qualidade do ar segue as faixas do US AQI', () {
+      expect(nivelAr(40), 'BAIXO');
+      expect(nivelAr(100), 'BAIXO');
+      expect(nivelAr(120), 'MODERADO');
+      expect(nivelAr(180), 'ALTO');
+      expect(nivelAr(250), 'CRITICO');
+      expect(rotuloAr(30), 'Ar bom');
+      expect(rotuloAr(160), 'Ar ruim');
+    });
+
+    test('alertas de UV muito alto e de ar ruim', () {
+      final c = Clima(
+        chuva: Chuva(mmProximas12h: 0, maxMmPorHora: 0, probabilidadeMax: 0),
+        calor: Calor(sensacaoMax: 26, temperaturaMax: 25, uvMax: 9),
+        ar: QualidadeAr(aqi: 160, pm25: 70),
+      );
+      final titulos = alertasDoClima(c).map((a) => a.titulo).toList();
+      expect(titulos, contains('Índice UV muito alto'));
+      expect(titulos, contains('Qualidade do ar ruim'));
+      // ar bom e UV baixo: sem alertas
+      final calmo = Clima(
+        chuva: Chuva(mmProximas12h: 0, maxMmPorHora: 0, probabilidadeMax: 0),
+        calor: Calor(sensacaoMax: 26, temperaturaMax: 25, uvMax: 4),
+        ar: QualidadeAr(aqi: 30),
+      );
+      expect(alertasDoClima(calmo), isEmpty);
+    });
+
+    test('previsão de 7 dias é lida do bloco daily', () {
+      final dias = previsaoDiaria({
+        'time': ['2026-11-08', '2026-11-09'],
+        'weather_code': [61, 1],
+        'temperature_2m_max': [24.6, 28.1],
+        'temperature_2m_min': [16.5, 17.0],
+        'precipitation_sum': [7.8, 0.0],
+        'precipitation_probability_max': [100, 10],
+        'uv_index_max': [7.9, null],
+      });
+      expect(dias, hasLength(2));
+      expect(dias.first.codigo, 61);
+      expect(dias.first.chuvaMm, 7.8);
+      expect(dias.last.uvMax, 0); // valor ausente vira zero
+      expect(dias.last.data.day, 9);
+    });
+
+    test('radar guarda só os quadros mais recentes', () {
+      final quadros = lerQuadrosRadar({
+        'host': 'https://tilecache.rainviewer.com',
+        'radar': {
+          'past': [for (var i = 0; i < 13; i++) {'time': 1794179400 + i * 600, 'path': '/v2/radar/q$i'}],
+        },
+      });
+      expect(quadros, hasLength(7));
+      expect(quadros.last.urlTiles, 'https://tilecache.rainviewer.com/v2/radar/q12/256/{z}/{x}/{y}/2/1_1.png');
+      expect(quadros.first.hora.isBefore(quadros.last.hora), isTrue);
     });
   });
 }

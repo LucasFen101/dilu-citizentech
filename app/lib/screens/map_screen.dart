@@ -192,7 +192,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 }
 
-/// Cartão com a previsão de chuva e de calor das próximas 12 horas.
+/// Cartão com a previsão de chuva, calor, UV e qualidade do ar das próximas 12 horas.
 class _CartaoClima extends StatelessWidget {
   final Clima? clima;
   final bool carregando;
@@ -227,7 +227,8 @@ class _CartaoClima extends StatelessWidget {
             _LinhaClima(
               icone: Icon(Icons.thermostat, color: corNivel(c.calor.nivel), size: 28),
               titulo: 'Sensação de até ${c.calor.sensacaoMax.toStringAsFixed(0)} °C',
-              detalhe: 'Máxima ${c.calor.temperaturaMax.toStringAsFixed(0)} °C · UV ${c.calor.uvMax.toStringAsFixed(0)}',
+              detalhe: 'Máxima ${c.calor.temperaturaMax.toStringAsFixed(0)} °C · UV ${c.calor.uvMax.toStringAsFixed(0)}'
+                  '${c.ar != null ? ' · ${rotuloAr(c.ar!.aqi)} (${c.ar!.aqi})' : ''}',
               nivel: c.calor.nivel,
             ),
           ],

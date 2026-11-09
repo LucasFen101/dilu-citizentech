@@ -241,6 +241,150 @@ class BotaoTextoGrande extends StatelessWidget {
       );
 }
 
+/// "Esqueleto" do conteúdo enquanto carrega: blocos que pulsam no lugar dos cartões.
+/// Mostra o formato da tela antes dos dados chegarem (parece mais rápido que um círculo girando).
+class Esqueleto extends StatefulWidget {
+  final int cartoes;
+  const Esqueleto({super.key, this.cartoes = 4});
+
+  @override
+  State<Esqueleto> createState() => _EsqueletoState();
+}
+
+class _EsqueletoState extends State<Esqueleto> with SingleTickerProviderStateMixin {
+  late final AnimationController _pulso =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulso.dispose(); // para a animação ao sair da tela
+    super.dispose();
+  }
+
+  Widget _barra(double largura, double altura) => Container(
+        width: largura,
+        height: altura,
+        decoration: BoxDecoration(color: kAreia, borderRadius: BorderRadius.circular(6)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Carregando',
+      child: FadeTransition(
+        opacity: Tween(begin: 0.45, end: 1.0).animate(_pulso),
+        child: ListView(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            for (var i = 0; i < widget.cartoes; i++)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(children: [
+                    Container(width: 44, height: 44, decoration: const BoxDecoration(color: kAreia, shape: BoxShape.circle)),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        _barra(i.isEven ? 160 : 120, 14),
+                        const SizedBox(height: 8),
+                        _barra(double.infinity, 10),
+                        const SizedBox(height: 6),
+                        _barra(i.isEven ? 90 : 140, 10),
+                      ]),
+                    ),
+                  ]),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tela de erro ou vazio com a gota do Dilu e um botão para tentar de novo.
+class EstadoTela extends StatelessWidget {
+  final String titulo;
+  final String? texto;
+  final VoidCallback? aoTentar;
+  final Color corGota;
+  const EstadoTela({super.key, required this.titulo, this.texto, this.aoTentar, this.corGota = kSinal});
+
+  /// Erro padrão de conexão com o servidor do Dilu.
+  const EstadoTela.semConexao({super.key, this.aoTentar})
+      : titulo = 'Sem conexão com o Dilu',
+        texto = 'Confira sua internet ou se o servidor está ligado e tente de novo.',
+        corGota = kBrasa;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(
+            width: 120,
+            height: 110,
+            child: Stack(alignment: Alignment.bottomCenter, children: [
+              const Positioned.fill(child: CustomPaint(painter: _RespingoPainter())),
+              Positioned(top: 14, child: Gota(largura: 44, cor: corGota)),
+            ]),
+          ),
+          const SizedBox(height: 18),
+          Text(titulo, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
+          if (texto != null) ...[
+            const SizedBox(height: 6),
+            Text(texto!, textAlign: TextAlign.center, style: const TextStyle(color: kTintaSuave)),
+          ],
+          if (aoTentar != null) ...[
+            const SizedBox(height: 18),
+            SizedBox(
+              width: 220,
+              child: OutlinedButton.icon(onPressed: aoTentar, icon: const Icon(Icons.refresh), label: const Text('Tentar de novo')),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
+/// Anéis de água embaixo da gota (a gota caindo na poça).
+class _RespingoPainter extends CustomPainter {
+  const _RespingoPainter();
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final centro = Offset(s.width / 2, s.height - 14);
+    for (var i = 1; i <= 3; i++) {
+      final p = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = kTinta.withValues(alpha: 0.42 - i * 0.11);
+      canvas.drawOval(Rect.fromCenter(center: centro, width: 34.0 * i, height: 9.0 * i), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RespingoPainter o) => false;
+}
+
+/// Crédito do radar RainViewer (a API gratuita pede citação visível com link).
+class AtribuicaoRadar extends StatelessWidget {
+  const AtribuicaoRadar({super.key});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => launchUrl(Uri.parse('https://www.rainviewer.com/'), mode: LaunchMode.externalApplication),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(color: kPapelClaro.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(5)),
+          child: const Text('Radar: RainViewer', style: TextStyle(fontSize: 10.5, color: kTinta, fontWeight: FontWeight.w600)),
+        ),
+      );
+}
+
 /// Manchas de cor suaves (degradê radial) sobre pontos do mapa, sem polígonos.
 /// Lê a câmera do mapa para acompanhar zoom e arrasto. Cor nula = não pinta.
 class ManchasMapa extends StatelessWidget {
@@ -265,9 +409,16 @@ class _ManchasPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // de perto a mancha cobre a tela toda: vai enfraquecendo a partir do zoom 4,5
+    // até ficar num tom médio (50%) no zoom 7,5, que ainda dá cor sem esconder o mapa
+    final fade = (1 - (camera.zoom - 4.5) / 3 * 0.5).clamp(0.5, 1.0);
+    // as manchas são desenhadas juntas numa camada e só depois "multiplicadas" sobre o mapa:
+    // assim, onde duas se cruzam, a cor não escurece em dobro
+    canvas.saveLayer(Offset.zero & size, Paint()..blendMode = BlendMode.multiply);
     for (final p in pontos) {
-      final cor = p.$2;
-      if (cor == null) continue;
+      final base = p.$2;
+      if (base == null) continue;
+      final cor = base.withValues(alpha: base.a * fade);
       final centro = camera.latLngToScreenOffset(p.$1);
       // metros por pixel naquele ponto e zoom (tiles de 256 px)
       final mPorPx = 156543.03392 * cos(p.$1.latitudeInRad) / pow(2, camera.zoom);
@@ -280,6 +431,7 @@ class _ManchasPainter extends CustomPainter {
         ).createShader(Rect.fromCircle(center: centro, radius: raioPx));
       canvas.drawCircle(centro, raioPx, paint);
     }
+    canvas.restore();
   }
 
   @override

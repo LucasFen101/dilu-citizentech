@@ -22,6 +22,7 @@ class _ContaScreenState extends State<ContaScreen> {
   ResumoUsuario? _resumo;
   List<MeuRelato> _relatos = [];
   bool _carregando = true;
+  bool _semConexao = false;
 
   @override
   void initState() {
@@ -37,9 +38,15 @@ class _ContaScreenState extends State<ContaScreen> {
         _eu = res[0] as Map<String, dynamic>;
         _resumo = res[1] as ResumoUsuario;
         _relatos = res[2] as List<MeuRelato>;
+        _semConexao = false;
       });
     } on ApiException catch (e) {
-      if (mounted) aviso(context, e.message, erro: true);
+      if (!mounted) return;
+      if (e.status == null) {
+        setState(() => _semConexao = true);
+      } else {
+        aviso(context, e.message, erro: true);
+      }
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
@@ -71,7 +78,13 @@ class _ContaScreenState extends State<ContaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_carregando) return const Center(child: CircularProgressIndicator());
+    if (_carregando) return const Esqueleto(cartoes: 3);
+    if (_semConexao && _eu == null) {
+      return EstadoTela.semConexao(aoTentar: () {
+        setState(() => _carregando = true);
+        _carregar();
+      });
+    }
     final nome = (_eu?['nome'] as String?) ?? 'Morador';
     final bairro = _eu?['bairro'] as String?;
     final r = _resumo;
@@ -200,7 +213,8 @@ class _ContaScreenState extends State<ContaScreen> {
                       'Meta 13.1: reforçar a resiliência e a capacidade de adaptação a riscos relacionados ao clima. O app acompanha chuva, calor e umidade '
                           'em todo o Brasil e orienta o que fazer antes, durante e depois de eventos extremos.'),
                   _Ods('ODS 3 · Saúde e bem-estar',
-                      'Alertas de calor extremo e orientações para idosos e crianças, além do botão de emergência que avisa contatos e vizinhos.'),
+                      'Alertas de calor extremo, UV muito alto e ar poluído (como fumaça de queimadas), com orientações para idosos, crianças '
+                          'e quem tem asma, além do botão de emergência que avisa contatos e vizinhos.'),
                 ],
               ),
               Divider(height: 1),
@@ -211,7 +225,9 @@ class _ContaScreenState extends State<ContaScreen> {
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _Linha('Mapa', '© OpenStreetMap contributors, licença ODbL.'),
-                  _Linha('Chuva, temperatura, umidade e vento', 'Previsão do Open-Meteo, para 83 cidades do Brasil.'),
+                  _Linha('Chuva, temperatura, umidade, vento e UV', 'Previsão do Open-Meteo, para 83 cidades do Brasil.'),
+                  _Linha('Qualidade do ar', 'Índice US AQI e partículas finas (PM2,5) do Open-Meteo Air Quality (modelo CAMS, da União Europeia).'),
+                  _Linha('Radar de chuva', 'Imagens das últimas 2 horas do RainViewer, que reúne radares meteorológicos do mundo todo.'),
                   _Linha('Vazão dos rios', 'Modelo global GloFAS, pela API de enchentes do Open-Meteo.'),
                   _Linha('Relatos e confirmações', 'Feitos pelos moradores e guardados no banco Oracle do Dilu.'),
                 ],
@@ -224,7 +240,8 @@ class _ContaScreenState extends State<ContaScreen> {
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _Linha('Risco estimado', 'É uma estimativa por modelo, a partir da chuva acumulada e prevista. Não substitui os alertas oficiais da Defesa Civil.'),
-                  _Linha('Previsão por cidade', 'Representa o centro da cidade, não um radar de chuva em tempo real.'),
+                  _Linha('Previsão por cidade', 'Representa o centro da cidade. Para ver a chuva real, ligue o radar na aba Clima.'),
+                  _Linha('Radar', 'A cobertura de radares no Brasil não é completa: em partes do Norte e do Centro-Oeste pode haver chuva que o radar não mostra.'),
                   _Linha('Abrigos', 'Os abrigos mostrados hoje são exemplos de demonstração. Confirme os locais oficiais com a Defesa Civil (199).'),
                 ],
               ),

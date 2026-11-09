@@ -18,6 +18,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Bairro> _bairros = [];
   NumerosDilu? _numeros;
   bool _carregando = true;
+  bool _semConexao = false;
 
   @override
   void initState() {
@@ -32,10 +33,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _bairros = res[0] as List<Bairro>;
           _numeros = res[1] as NumerosDilu;
+          _semConexao = false;
         });
       }
     } on ApiException catch (e) {
-      if (mounted) aviso(context, e.message, erro: true);
+      if (!mounted) return;
+      if (e.status == null) {
+        setState(() => _semConexao = true); // falha de rede: mostra a tela de erro
+      } else {
+        aviso(context, e.message, erro: true);
+      }
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
@@ -51,7 +58,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_carregando) return const Center(child: CircularProgressIndicator());
+    if (_carregando) return const Esqueleto();
+    if (_semConexao && _bairros.isEmpty) {
+      return EstadoTela.semConexao(aoTentar: () {
+        setState(() => _carregando = true);
+        _carregar();
+      });
+    }
     final contagem = <String, int>{};
     for (final b in _bairros) {
       contagem[b.nivel] = (contagem[b.nivel] ?? 0) + 1;

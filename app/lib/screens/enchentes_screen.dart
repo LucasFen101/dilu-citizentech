@@ -44,7 +44,17 @@ class _EnchentesScreenState extends State<EnchentesScreen> {
         ),
       ),
       const Divider(height: 1),
-      Expanded(child: switch (_aba) { 0 => const _RiscoView(), 1 => const MapScreen(), _ => const DashboardScreen() }),
+      Expanded(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          layoutBuilder: (atual, _) => atual ?? const SizedBox.shrink(),
+          transitionBuilder: (filho, anim) => FadeTransition(opacity: anim, child: filho),
+          child: KeyedSubtree(
+            key: ValueKey(_aba),
+            child: switch (_aba) { 0 => const _RiscoView(), 1 => const MapScreen(), _ => const DashboardScreen() },
+          ),
+        ),
+      ),
     ]);
   }
 }

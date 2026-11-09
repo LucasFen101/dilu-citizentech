@@ -38,6 +38,7 @@ class _ListaAbrigosState extends State<_ListaAbrigos> with AutomaticKeepAliveCli
   List<Abrigo> _abrigos = [];
   bool _carregando = true;
   bool _semGps = false;
+  bool _semConexao = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -57,10 +58,16 @@ class _ListaAbrigosState extends State<_ListaAbrigos> with AutomaticKeepAliveCli
         setState(() {
           _abrigos = a;
           _semGps = pos == null;
+          _semConexao = false;
         });
       }
     } on ApiException catch (e) {
-      if (mounted) aviso(context, e.message, erro: true);
+      if (!mounted) return;
+      if (e.status == null) {
+        setState(() => _semConexao = true);
+      } else {
+        aviso(context, e.message, erro: true);
+      }
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
@@ -69,7 +76,8 @@ class _ListaAbrigosState extends State<_ListaAbrigos> with AutomaticKeepAliveCli
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    if (_carregando) return const Center(child: CircularProgressIndicator());
+    if (_carregando) return const Esqueleto();
+    if (_semConexao && _abrigos.isEmpty) return EstadoTela.semConexao(aoTentar: _carregar);
     return RefreshIndicator(
       onRefresh: _carregar,
       child: ListView(
