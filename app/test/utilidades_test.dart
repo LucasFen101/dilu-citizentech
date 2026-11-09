@@ -245,4 +245,22 @@ void main() {
       expect(quadros.first.hora.isBefore(quadros.last.hora), isTrue);
     });
   });
+  test('locais de abrigo do OpenStreetMap: filtra, classifica e tira repetidos', () {
+    final l = lerLocaisApoio({
+      'elements': [
+        {'type': 'way', 'id': 1, 'center': {'lat': -23.55, 'lon': -46.60}, 'tags': {'amenity': 'school', 'name': 'E.M.E.F. Fábio da Silva Prado', 'addr:street': 'Rua Taquari', 'addr:housenumber': '459'}},
+        {'type': 'node', 'id': 2, 'lat': -23.55, 'lon': -46.60, 'tags': {'amenity': 'school', 'name': 'E.M.E.F. Fábio da Silva Prado'}},
+        {'type': 'node', 'id': 3, 'lat': -23.56, 'lon': -46.61, 'tags': {'amenity': 'school', 'name': 'Escola de Idiomas'}},
+        {'type': 'node', 'id': 4, 'lat': -23.56, 'lon': -46.61, 'tags': {'amenity': 'school'}},
+        {'type': 'way', 'id': 5, 'center': {'lat': -23.57, 'lon': -46.62}, 'tags': {'leisure': 'sports_centre', 'name': 'Clube Escola Mooca'}},
+        {'type': 'node', 'id': 6, 'lat': -23.58, 'lon': -46.63, 'tags': {'amenity': 'school', 'name': 'Colégio Dr. Walter Belian'}},
+      ],
+    });
+    expect(l.map((e) => e.nome), ['E.M.E.F. Fábio da Silva Prado', 'Clube Escola Mooca', 'Colégio Dr. Walter Belian']);
+    expect(l[0].tipo, 'Escola pública');
+    expect(l[0].refOsm, 'way/1');
+    expect(l[0].endereco, 'Rua Taquari, 459');
+    expect(l[1].prioridade, 0);
+    expect(l[2].tipo, 'Escola');
+  });
 }

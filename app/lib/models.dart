@@ -59,7 +59,7 @@ class Alagamento {
       );
 }
 
-/// Abrigo para onde a pessoa pode ir.
+/// Abrigo funcionando agora: oficial ou marcado por moradores (com confirmações).
 class Abrigo {
   final int id;
   final String nome;
@@ -68,20 +68,38 @@ class Abrigo {
   final double longitude;
   final int? capacidade;
   final String? telefone;
-  final String bairro;
+  final String? bairro;
   final double? distanciaKm;
+  final String origem; // OFICIAL ou COMUNIDADE
+  final String? tipo;
+  final String? refOsm; // liga o abrigo ao local do OpenStreetMap
+  final int confirmacoes;
+  final bool confirmadoPorMim;
+  final bool meu;
+  final DateTime? criadoEm;
+  final DateTime? expiraEm;
 
   Abrigo({
     required this.id,
     required this.nome,
     required this.latitude,
     required this.longitude,
-    required this.bairro,
+    this.bairro,
     this.endereco,
     this.capacidade,
     this.telefone,
     this.distanciaKm,
+    this.origem = 'OFICIAL',
+    this.tipo,
+    this.refOsm,
+    this.confirmacoes = 0,
+    this.confirmadoPorMim = false,
+    this.meu = false,
+    this.criadoEm,
+    this.expiraEm,
   });
+
+  bool get daComunidade => origem == 'COMUNIDADE';
 
   factory Abrigo.fromJson(Map<String, dynamic> j) => Abrigo(
         id: j['id_abrigo'] as int,
@@ -91,9 +109,97 @@ class Abrigo {
         longitude: _num(j['longitude']),
         capacidade: (j['capacidade'] as num?)?.toInt(),
         telefone: j['telefone'] as String?,
-        bairro: j['bairro'] as String,
+        bairro: j['bairro'] as String?,
         distanciaKm: j['distancia_km'] == null ? null : _num(j['distancia_km']),
+        origem: (j['origem'] as String?) ?? 'OFICIAL',
+        tipo: j['tipo'] as String?,
+        refOsm: j['ref_osm'] as String?,
+        confirmacoes: (j['confirmacoes'] as num?)?.toInt() ?? 0,
+        confirmadoPorMim: (j['confirmado_por_mim'] as bool?) ?? false,
+        meu: (j['meu'] as bool?) ?? false,
+        criadoEm: _data(j['criado_em']),
+        expiraEm: _data(j['expira_em']),
       );
+}
+
+/// Local que costuma virar abrigo em enchentes (escola, ginásio, centro comunitário),
+/// vindo do OpenStreetMap. Não é abrigo confirmado: é onde a Defesa Civil costuma abrir.
+class LocalApoio {
+  final String refOsm; // ex.: node/123 ou way/456
+  final String nome;
+  final String tipo; // rótulo em português
+  final String? endereco;
+  final double latitude;
+  final double longitude;
+  final int prioridade; // 0 = ginásio/CEU/centro comunitário, 1 = escola pública, 2 = outras escolas
+  double distanciaKm;
+
+  LocalApoio({
+    required this.refOsm,
+    required this.nome,
+    required this.tipo,
+    required this.latitude,
+    required this.longitude,
+    required this.prioridade,
+    this.endereco,
+    this.distanciaKm = 0,
+  });
+}
+
+// escolas que não servem de abrigo (cursos livres, idiomas, autoescola...)
+final _naoAbrigo = RegExp(
+    r'idioma|ingl[eê]s|english|yazigi|wizard|\bcna\b|fisk|autoescola|auto escola|m[uú]sica|dan[cç]a|kumon|ballet|bal[eé]|'
+    r'cursinho|pr[eé]-vestibular|inform[aá]tica|beleza|cabeleireir|nata[cç][aã]o|idiomas|language|\bccaa\b',
+    caseSensitive: false);
+
+final _escolaPublica = RegExp(
+    r'^(e\.? ?e\.?|ee\b|e\.?m\.?e\.?f|emef|emei|emeb|e\.?m\.?|ceu\b|cei\b|etec|fatec|escola estadual|escola municipal|'
+    r'col[eé]gio estadual|col[eé]gio municipal|instituto federal|if[a-z]{0,3}\b|escola t[eé]cnica estadual|creche municipal)',
+    caseSensitive: false);
+
+/// Lê a resposta do Overpass (OpenStreetMap) e devolve os locais úteis, sem repetidos.
+List<LocalApoio> lerLocaisApoio(Map<String, dynamic> json) {
+  final vistos = <String>{};
+  final lista = <LocalApoio>[];
+  for (final e in (json['elements'] as List).cast<Map<String, dynamic>>()) {
+    final tags = (e['tags'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final nome = (tags['name'] as String?)?.trim();
+    if (nome == null || nome.isEmpty || _naoAbrigo.hasMatch(nome)) continue;
+    final lat = (e['lat'] ?? (e['center'] as Map?)?['lat']) as num?;
+    final lon = (e['lon'] ?? (e['center'] as Map?)?['lon']) as num?;
+    if (lat == null || lon == null) continue;
+    if (!vistos.add(nome.toLowerCase())) continue; // mesmo local mapeado como ponto e como área
+
+    final amenity = tags['amenity'] as String?;
+    final leisure = tags['leisure'] as String?;
+    final String tipo;
+    final int prioridade;
+    if (leisure == 'sports_centre' || leisure == 'sports_hall' || RegExp(r'gin[aá]sio|ceu\b', caseSensitive: false).hasMatch(nome)) {
+      tipo = 'Ginásio / esportes';
+      prioridade = 0;
+    } else if (amenity == 'community_centre') {
+      tipo = 'Centro comunitário';
+      prioridade = 0;
+    } else if (_escolaPublica.hasMatch(nome)) {
+      tipo = 'Escola pública';
+      prioridade = 1;
+    } else {
+      tipo = 'Escola';
+      prioridade = 2;
+    }
+    final rua = tags['addr:street'] as String?;
+    final numero = tags['addr:housenumber'] as String?;
+    lista.add(LocalApoio(
+      refOsm: '${e['type']}/${e['id']}',
+      nome: nome,
+      tipo: tipo,
+      endereco: rua == null ? null : (numero == null ? rua : '$rua, $numero'),
+      latitude: lat.toDouble(),
+      longitude: lon.toDouble(),
+      prioridade: prioridade,
+    ));
+  }
+  return lista;
 }
 
 /// Indicadores de risco de um bairro (vem da view do Oracle).

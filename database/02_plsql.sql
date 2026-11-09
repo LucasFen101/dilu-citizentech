@@ -91,6 +91,21 @@ CREATE OR REPLACE PACKAGE pkg_enchente AS
 
   PROCEDURE sp_marcar_notificacoes_lidas (p_id_usuario NUMBER);
   PROCEDURE sp_expirar_alagamentos (p_qtd OUT NUMBER);
+
+  -- abrigos da comunidade
+  PROCEDURE sp_ativar_abrigo (
+    p_id_usuario NUMBER,
+    p_nome       VARCHAR2,
+    p_endereco   VARCHAR2,
+    p_lat        NUMBER,
+    p_lon        NUMBER,
+    p_tipo       VARCHAR2,
+    p_ref_osm    VARCHAR2,
+    p_id_abrigo  OUT NUMBER
+  );
+  PROCEDURE sp_confirmar_abrigo (p_id_abrigo NUMBER, p_id_usuario NUMBER);
+  PROCEDURE sp_encerrar_abrigo  (p_id_abrigo NUMBER, p_id_usuario NUMBER);
+  PROCEDURE sp_expirar_abrigos  (p_qtd OUT NUMBER);
 END pkg_enchente;
 /
 
@@ -309,6 +324,110 @@ CREATE OR REPLACE PACKAGE BODY pkg_enchente AS
     p_qtd := SQL%ROWCOUNT;
   END sp_expirar_alagamentos;
 
+  ----------------------------------------------------------------------
+  -- Confirmacao de abrigo da comunidade: prolonga a validade em 12h.
+  ----------------------------------------------------------------------
+  PROCEDURE sp_confirmar_abrigo (p_id_abrigo NUMBER, p_id_usuario NUMBER) IS
+    v_ativo  abrigo.ativo%TYPE;
+    v_origem abrigo.origem%TYPE;
+    v_dono   abrigo.id_usuario%TYPE;
+  BEGIN
+    BEGIN
+      SELECT ativo, origem, id_usuario INTO v_ativo, v_origem, v_dono
+        FROM abrigo WHERE id_abrigo = p_id_abrigo;
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20051, UNISTR('Abrigo n\00E3o encontrado.'));
+    END;
+
+    IF v_ativo <> 'S' OR v_origem <> 'COMUNIDADE' THEN
+      RAISE_APPLICATION_ERROR(-20051, UNISTR('Este abrigo n\00E3o est\00E1 mais marcado como funcionando.'));
+    END IF;
+    IF v_dono = p_id_usuario THEN
+      RAISE_APPLICATION_ERROR(-20052, UNISTR('Voc\00EA j\00E1 marcou este local como abrigo.'));
+    END IF;
+
+    INSERT INTO confirmacao_abrigo (id_abrigo, id_usuario)
+    VALUES (p_id_abrigo, p_id_usuario);
+
+    UPDATE abrigo
+       SET expira_em = GREATEST(expira_em, SYSTIMESTAMP) + INTERVAL '12' HOUR
+     WHERE id_abrigo = p_id_abrigo;
+  EXCEPTION
+    WHEN DUP_VAL_ON_INDEX THEN
+      RAISE_APPLICATION_ERROR(-20053, UNISTR('Voc\00EA j\00E1 confirmou este abrigo.'));
+  END sp_confirmar_abrigo;
+
+  ----------------------------------------------------------------------
+  -- Um morador marca que um local esta recebendo pessoas. Se o mesmo
+  -- local (mesma referencia do OpenStreetMap ou a menos de 50 m) ja estiver
+  -- marcado, vira uma confirmacao. Validade inicial: 24h.
+  -- O trigger TRG_ABRIGO_NOTIFICA avisa os moradores do bairro.
+  ----------------------------------------------------------------------
+  PROCEDURE sp_ativar_abrigo (
+    p_id_usuario NUMBER,
+    p_nome       VARCHAR2,
+    p_endereco   VARCHAR2,
+    p_lat        NUMBER,
+    p_lon        NUMBER,
+    p_tipo       VARCHAR2,
+    p_ref_osm    VARCHAR2,
+    p_id_abrigo  OUT NUMBER
+  ) IS
+  BEGIN
+    IF TRIM(p_nome) IS NULL THEN
+      RAISE_APPLICATION_ERROR(-20050, UNISTR('Informe o nome do local.'));
+    END IF;
+
+    BEGIN
+      SELECT id_abrigo INTO p_id_abrigo
+        FROM abrigo
+       WHERE ativo = 'S'
+         AND origem = 'COMUNIDADE'
+         AND ((p_ref_osm IS NOT NULL AND ref_osm = p_ref_osm)
+              OR fn_distancia_km(latitude, longitude, p_lat, p_lon) < 0.05)
+         AND ROWNUM = 1;
+      sp_confirmar_abrigo(p_id_abrigo, p_id_usuario);
+      RETURN;
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN NULL; -- local ainda nao marcado: cria abaixo
+    END;
+
+    INSERT INTO abrigo (id_bairro, nome, endereco, latitude, longitude, ativo,
+                        origem, tipo, ref_osm, id_usuario, expira_em)
+    VALUES (fn_bairro_proximo(p_lat, p_lon), TRIM(p_nome), p_endereco, p_lat, p_lon, 'S',
+            'COMUNIDADE', p_tipo, p_ref_osm, p_id_usuario, SYSTIMESTAMP + INTERVAL '24' HOUR)
+    RETURNING id_abrigo INTO p_id_abrigo;
+  END sp_ativar_abrigo;
+
+  ----------------------------------------------------------------------
+  -- Quem marcou pode avisar que o abrigo fechou ou lotou.
+  ----------------------------------------------------------------------
+  PROCEDURE sp_encerrar_abrigo (p_id_abrigo NUMBER, p_id_usuario NUMBER) IS
+  BEGIN
+    UPDATE abrigo
+       SET ativo = 'N', expira_em = SYSTIMESTAMP
+     WHERE id_abrigo = p_id_abrigo
+       AND id_usuario = p_id_usuario
+       AND origem = 'COMUNIDADE'
+       AND ativo = 'S';
+    IF SQL%ROWCOUNT = 0 THEN
+      RAISE_APPLICATION_ERROR(-20054,
+        UNISTR('S\00F3 quem marcou o abrigo pode encerr\00E1-lo, e ele precisa estar ativo.'));
+    END IF;
+  END sp_encerrar_abrigo;
+
+  ----------------------------------------------------------------------
+  -- Chamada pelo job: desativa abrigos da comunidade sem confirmacao recente.
+  ----------------------------------------------------------------------
+  PROCEDURE sp_expirar_abrigos (p_qtd OUT NUMBER) IS
+  BEGIN
+    UPDATE abrigo
+       SET ativo = 'N'
+     WHERE origem = 'COMUNIDADE' AND ativo = 'S' AND expira_em < SYSTIMESTAMP;
+    p_qtd := SQL%ROWCOUNT;
+  END sp_expirar_abrigos;
+
 END pkg_enchente;
 /
 
@@ -416,7 +535,26 @@ BEGIN
 END trg_pedido_ajuda_notifica;
 /
 
--- ------------------------------------------------ JOB: expirar relatos
+-- ------------------------------------------------ TRIGGER: abrigo aberto
+-- Quando um morador marca um abrigo, avisa os outros moradores do bairro.
+CREATE OR REPLACE TRIGGER trg_abrigo_notifica
+AFTER INSERT ON abrigo
+FOR EACH ROW
+WHEN (NEW.origem = 'COMUNIDADE' AND NEW.id_bairro IS NOT NULL)
+BEGIN
+  INSERT INTO notificacao (id_usuario, tipo, titulo, mensagem)
+  SELECT u.id_usuario,
+         'ABRIGO',
+         UNISTR('Abrigo funcionando perto de voc\00EA'),
+         'Moradores indicam que ' || :NEW.nome || UNISTR(' est\00E1 recebendo pessoas. ')
+           || UNISTR('Confirme com a Defesa Civil (199) antes de ir.')
+    FROM usuario u
+   WHERE u.id_bairro = :NEW.id_bairro
+     AND (u.id_usuario <> :NEW.id_usuario OR :NEW.id_usuario IS NULL);
+END trg_abrigo_notifica;
+/
+
+-- ------------------------------------------------ JOB: expirar relatos e abrigos
 BEGIN
   BEGIN
     DBMS_SCHEDULER.DROP_JOB('JOB_EXPIRAR_ALAGAMENTOS', force => TRUE);
@@ -427,11 +565,12 @@ BEGIN
   DBMS_SCHEDULER.CREATE_JOB(
     job_name        => 'JOB_EXPIRAR_ALAGAMENTOS',
     job_type        => 'PLSQL_BLOCK',
-    job_action      => 'DECLARE v NUMBER; BEGIN pkg_enchente.sp_expirar_alagamentos(v); COMMIT; END;',
+    job_action      => 'DECLARE v NUMBER; BEGIN pkg_enchente.sp_expirar_alagamentos(v); '
+                       || 'pkg_enchente.sp_expirar_abrigos(v); COMMIT; END;',
     start_date      => SYSTIMESTAMP,
     repeat_interval => 'FREQ=MINUTELY;INTERVAL=15',
     enabled         => TRUE,
-    comments        => 'Expira relatos de alagamento vencidos e recalcula o risco');
+    comments        => 'Expira relatos de alagamento e abrigos da comunidade vencidos');
 END;
 /
 

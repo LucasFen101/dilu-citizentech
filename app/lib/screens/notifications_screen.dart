@@ -56,12 +56,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   IconData _icone(String tipo) => switch (tipo) {
         'RISCO' => Icons.warning_amber,
         'AJUDA' => Icons.crisis_alert,
+        'ABRIGO' => Icons.home_work,
         _ => Icons.info,
       };
 
   Color _cor(String tipo) => switch (tipo) {
         'RISCO' => corNivel('ALTO'),
         'AJUDA' => kBrasa,
+        'ABRIGO' => kSinal,
         _ => kAgua,
       };
 

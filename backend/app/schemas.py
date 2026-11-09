@@ -24,6 +24,16 @@ class ContatoIn(BaseModel):
     parentesco: str | None = Field(default=None, max_length=40)
 
 
+class AbrigoIn(BaseModel):
+    """Local (normalmente vindo do OpenStreetMap) que o morador diz estar recebendo pessoas."""
+    nome: str = Field(min_length=2, max_length=120)
+    endereco: str | None = Field(default=None, max_length=200)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    tipo: str | None = Field(default=None, max_length=40)
+    ref_osm: str | None = Field(default=None, max_length=30, pattern=r"^(node|way|relation)/\d+$")
+
+
 class EmergenciaIn(BaseModel):
     tipo: Literal["AJUDA", "SEGURO"]
     latitude: float = Field(ge=-90, le=90)

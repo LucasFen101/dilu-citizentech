@@ -9,13 +9,13 @@ import uuid
 from contextlib import asynccontextmanager
 
 import oracledb
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db
-from .schemas import ContatoIn, EmergenciaIn, LoginIn, RegisterIn
+from . import config, db, osm
+from .schemas import AbrigoIn, ContatoIn, EmergenciaIn, LoginIn, RegisterIn
 from .security import create_token, current_user_id, hash_password, verify_password
 
 
@@ -44,7 +44,10 @@ app.mount("/uploads", StaticFiles(directory=config.UPLOAD_DIR), name="uploads")
 
 # ------------------------------------------------------------------ erros
 # Codigo ORA-20xxx da PL/SQL -> status HTTP
-_STATUS_POR_CODIGO = {20001: 409, 20020: 404, 20021: 409, 20030: 403}
+_STATUS_POR_CODIGO = {
+    20001: 409, 20020: 404, 20021: 409, 20030: 403,
+    20051: 404, 20052: 409, 20053: 409, 20054: 403,
+}
 
 
 @app.exception_handler(oracledb.DatabaseError)
@@ -329,26 +332,80 @@ def emergencia(body: EmergenciaIn, uid: int = Depends(current_user_id)):
 def listar_abrigos(
     latitude: float | None = None,
     longitude: float | None = None,
-    _: int = Depends(current_user_id),
+    uid: int = Depends(current_user_id),
 ):
-    """Abrigos ativos, do mais proximo ao mais distante quando ha localizacao."""
-    binds: dict = {}
+    """Abrigos funcionando agora (oficiais e marcados por moradores), do mais proximo ao mais distante."""
+    binds: dict = {"usr": uid}
     if latitude is not None and longitude is not None:
-        binds = {"lat": latitude, "lon": longitude}
+        binds.update({"lat": latitude, "lon": longitude})
         dist = "fn_distancia_km(s.latitude, s.longitude, :lat, :lon)"
         ordem = "distancia_km"
     else:
         dist = "NULL"
-        ordem = "s.nome"
+        ordem = "s.criado_em DESC"
     sql = f"""
         SELECT s.id_abrigo, s.nome, s.endereco, s.latitude, s.longitude, s.capacidade,
-               s.telefone, b.nome AS bairro, {dist} AS distancia_km
-          FROM abrigo s JOIN bairro b ON b.id_bairro = s.id_bairro
+               s.telefone, b.nome AS bairro, s.origem, s.tipo, s.ref_osm,
+               s.criado_em, s.expira_em, s.id_usuario,
+               (SELECT COUNT(*) FROM confirmacao_abrigo c WHERE c.id_abrigo = s.id_abrigo) AS confirmacoes,
+               (SELECT COUNT(*) FROM confirmacao_abrigo c
+                 WHERE c.id_abrigo = s.id_abrigo AND c.id_usuario = :usr) AS confirmado_por_mim,
+               {dist} AS distancia_km
+          FROM abrigo s LEFT JOIN bairro b ON b.id_bairro = s.id_bairro
          WHERE s.ativo = 'S'
          ORDER BY {ordem}
          FETCH FIRST 100 ROWS ONLY"""
     with db.transaction() as conn:
-        return db.query(conn, sql, binds)
+        rows = db.query(conn, sql, binds)
+    for r in rows:
+        r["meu"] = r["id_usuario"] == uid
+        r["confirmado_por_mim"] = bool(r["confirmado_por_mim"])
+        del r["id_usuario"]  # nao expoe quem marcou
+    return rows
+
+
+@app.get("/locais-apoio", tags=["abrigos"])
+def locais_apoio(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    _: int = Depends(current_user_id),
+):
+    """Escolas, ginasios e centros comunitarios perto do ponto (OpenStreetMap), com cache no Oracle.
+
+    Devolve a resposta do Overpass; o app filtra e classifica os locais.
+    """
+    return osm.locais_apoio(latitude, longitude)
+
+
+@app.post("/abrigos/ativar", status_code=201, tags=["abrigos"])
+def ativar_abrigo(body: AbrigoIn, uid: int = Depends(current_user_id)):
+    """Morador marca que um local esta recebendo pessoas. Se ja estiver marcado, conta como confirmacao."""
+    with db.transaction() as conn:
+        with conn.cursor() as cur:
+            out = _out_id(cur)
+            cur.callproc(
+                "pkg_enchente.sp_ativar_abrigo",
+                [uid, body.nome, body.endereco, body.latitude, body.longitude, body.tipo, body.ref_osm, out],
+            )
+            return {"id_abrigo": int(out.getvalue())}
+
+
+@app.post("/abrigos/{id_abrigo}/confirmar", tags=["abrigos"])
+def confirmar_abrigo(id_abrigo: int, uid: int = Depends(current_user_id)):
+    """Confirma que o abrigo continua funcionando (prolonga a validade)."""
+    with db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.callproc("pkg_enchente.sp_confirmar_abrigo", [id_abrigo, uid])
+    return {"ok": True}
+
+
+@app.post("/abrigos/{id_abrigo}/encerrar", tags=["abrigos"])
+def encerrar_abrigo(id_abrigo: int, uid: int = Depends(current_user_id)):
+    """Quem marcou avisa que o abrigo fechou ou lotou."""
+    with db.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.callproc("pkg_enchente.sp_encerrar_abrigo", [id_abrigo, uid])
+    return {"ok": True}
 
 
 # ------------------------------------------------------------ indicadores

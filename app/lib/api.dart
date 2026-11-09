@@ -37,10 +37,10 @@ class Api {
   static String arquivo(String caminho) => '$baseUrl$caminho';
 
   /// Executa a requisição tratando falta de rede, tempo esgotado e erros da API.
-  static Future<dynamic> _enviar(Future<http.Response> Function() req) async {
+  static Future<dynamic> _enviar(Future<http.Response> Function() req, {Duration limite = const Duration(seconds: 20)}) async {
     http.Response r;
     try {
-      r = await req().timeout(const Duration(seconds: 20));
+      r = await req().timeout(limite);
     } on TimeoutException {
       throw ApiException('O servidor demorou para responder. Tente novamente.');
     } catch (_) {
@@ -170,6 +170,31 @@ class Api {
     final r = await _enviar(() => http.get(_u('/abrigos', q), headers: _json)) as List;
     return r.map((e) => Abrigo.fromJson(e)).toList();
   }
+
+  /// Escolas, ginásios e centros comunitários perto do ponto (OpenStreetMap, com cache no Oracle).
+  /// Na primeira busca de uma região a API consulta o Overpass, que pode demorar.
+  static Future<Map<String, dynamic>> locaisApoio(double lat, double lon) async => Map<String, dynamic>.from(await _enviar(
+      () => http.get(_u('/locais-apoio', {'latitude': '$lat', 'longitude': '$lon'}), headers: _json),
+      limite: const Duration(seconds: 55)));
+
+  /// Marca um local do mapa como "recebendo pessoas" (ou confirma, se já marcado). Devolve o id do abrigo.
+  static Future<int> ativarAbrigo(LocalApoio l) async {
+    final r = await _enviar(() => http.post(_u('/abrigos/ativar'),
+        headers: _json,
+        body: jsonEncode({
+          'nome': l.nome,
+          'endereco': l.endereco,
+          'latitude': l.latitude,
+          'longitude': l.longitude,
+          'tipo': l.tipo,
+          'ref_osm': l.refOsm,
+        })));
+    return r['id_abrigo'] as int;
+  }
+
+  static Future<void> confirmarAbrigo(int id) => _enviar(() => http.post(_u('/abrigos/$id/confirmar'), headers: _json));
+
+  static Future<void> encerrarAbrigo(int id) => _enviar(() => http.post(_u('/abrigos/$id/encerrar'), headers: _json));
 
   static Future<List<Bairro>> indicadores() async {
     final r = await _enviar(() => http.get(_u('/bairros/indicadores'), headers: _json)) as List;

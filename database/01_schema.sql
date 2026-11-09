@@ -96,9 +96,12 @@ CREATE INDEX ix_pedido_bairro  ON pedido_ajuda (id_bairro, tipo, status);
 CREATE INDEX ix_pedido_usuario ON pedido_ajuda (id_usuario);
 
 -- ---------------------------------------------------------------- ABRIGO
+-- Abrigo OFICIAL (cadastrado pela Defesa Civil/prefeitura) ou da COMUNIDADE:
+-- um morador marca que um local (escola, ginasio... vindo do OpenStreetMap)
+-- esta recebendo pessoas. O da comunidade expira se ninguem confirmar.
 CREATE TABLE abrigo (
   id_abrigo   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  id_bairro   NUMBER NOT NULL
+  id_bairro   NUMBER
               CONSTRAINT fk_abrigo_bairro REFERENCES bairro(id_bairro),
   nome        VARCHAR2(120) NOT NULL,
   endereco    VARCHAR2(200),
@@ -107,9 +110,40 @@ CREATE TABLE abrigo (
   capacidade  NUMBER(6),
   telefone    VARCHAR2(20),
   ativo       CHAR(1) DEFAULT 'S' NOT NULL
-              CONSTRAINT ck_abrigo_ativo CHECK (ativo IN ('S','N'))
+              CONSTRAINT ck_abrigo_ativo CHECK (ativo IN ('S','N')),
+  origem      VARCHAR2(10) DEFAULT 'OFICIAL' NOT NULL
+              CONSTRAINT ck_abrigo_origem CHECK (origem IN ('OFICIAL','COMUNIDADE')),
+  tipo        VARCHAR2(40),
+  ref_osm     VARCHAR2(30),
+  id_usuario  NUMBER
+              CONSTRAINT fk_abrigo_usuario REFERENCES usuario(id_usuario) ON DELETE SET NULL,
+  criado_em   TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+  expira_em   TIMESTAMP
 );
 CREATE INDEX ix_abrigo_bairro ON abrigo (id_bairro);
+CREATE INDEX ix_abrigo_ativo  ON abrigo (ativo, origem);
+CREATE INDEX ix_abrigo_osm    ON abrigo (ref_osm);
+
+-- ----------------------------------------------------- CACHE_LOCAIS_OSM
+-- Resposta do OpenStreetMap (Overpass) por "celula" do mapa (~2 km).
+-- Evita repetir a mesma busca e mantem o app funcionando se o Overpass cair.
+CREATE TABLE cache_locais_osm (
+  celula     VARCHAR2(30) PRIMARY KEY,
+  resposta   CLOB NOT NULL
+             CONSTRAINT ck_cache_json CHECK (resposta IS JSON),
+  buscado_em TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
+);
+
+-- ------------------------------------------------- CONFIRMACAO_ABRIGO
+-- Moradores que confirmam que o abrigo da comunidade continua funcionando.
+CREATE TABLE confirmacao_abrigo (
+  id_abrigo  NUMBER NOT NULL
+             CONSTRAINT fk_confab_abrigo REFERENCES abrigo(id_abrigo) ON DELETE CASCADE,
+  id_usuario NUMBER NOT NULL
+             CONSTRAINT fk_confab_usuario REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  criado_em  TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+  CONSTRAINT pk_confirmacao_abrigo PRIMARY KEY (id_abrigo, id_usuario)
+);
 
 -- ----------------------------------------------------------- NOTIFICACAO
 CREATE TABLE notificacao (
@@ -117,7 +151,7 @@ CREATE TABLE notificacao (
   id_usuario     NUMBER NOT NULL
                  CONSTRAINT fk_notif_usuario REFERENCES usuario(id_usuario) ON DELETE CASCADE,
   tipo           VARCHAR2(10) NOT NULL
-                 CONSTRAINT ck_notif_tipo CHECK (tipo IN ('RISCO','AJUDA','SISTEMA')),
+                 CONSTRAINT ck_notif_tipo CHECK (tipo IN ('RISCO','AJUDA','ABRIGO','SISTEMA')),
   titulo         VARCHAR2(120) NOT NULL,
   mensagem       VARCHAR2(300),
   lida           CHAR(1) DEFAULT 'N' NOT NULL

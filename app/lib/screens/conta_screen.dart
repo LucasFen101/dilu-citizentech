@@ -230,6 +230,7 @@ class _ContaScreenState extends State<ContaScreen> {
                   _Linha('Radar de chuva', 'Imagens das últimas 2 horas do RainViewer, que reúne radares meteorológicos do mundo todo.'),
                   _Linha('Vazão dos rios', 'Modelo global GloFAS, pela API de enchentes do Open-Meteo.'),
                   _Linha('Relatos e confirmações', 'Feitos pelos moradores e guardados no banco Oracle do Dilu.'),
+                  _Linha('Locais de abrigo', 'Escolas, ginásios e centros comunitários do OpenStreetMap (consulta Overpass).'),
                 ],
               ),
               Divider(height: 1),
@@ -242,7 +243,8 @@ class _ContaScreenState extends State<ContaScreen> {
                   _Linha('Risco estimado', 'É uma estimativa por modelo, a partir da chuva acumulada e prevista. Não substitui os alertas oficiais da Defesa Civil.'),
                   _Linha('Previsão por cidade', 'Representa o centro da cidade. Para ver a chuva real, ligue o radar na aba Clima.'),
                   _Linha('Radar', 'A cobertura de radares no Brasil não é completa: em partes do Norte e do Centro-Oeste pode haver chuva que o radar não mostra.'),
-                  _Linha('Abrigos', 'Os abrigos mostrados hoje são exemplos de demonstração. Confirme os locais oficiais com a Defesa Civil (199).'),
+                  _Linha('Abrigos', 'Os locais da lista são escolas, ginásios e centros comunitários que costumam virar abrigo, não abrigos abertos. '
+                      '"Funcionando agora" é informado pelos moradores. Confirme sempre com a Defesa Civil (199).'),
                 ],
               ),
             ]),

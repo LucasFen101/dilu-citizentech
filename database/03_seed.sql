@@ -1,8 +1,8 @@
 -- =====================================================================
 -- Dilu - 03_seed.sql
--- Dados iniciais: bairros de Sao Paulo (coordenadas aproximadas do centro)
--- e abrigos de EXEMPLO. Os abrigos abaixo sao ficticios, apenas para
--- demonstracao: substitua por dados oficiais da Defesa Civil.
+-- Dados iniciais: bairros de Sao Paulo (coordenadas aproximadas do centro).
+-- Nao ha abrigos ficticios: os abrigos vem dos moradores (locais do
+-- OpenStreetMap marcados como "recebendo pessoas") ou de cadastro oficial.
 -- =====================================================================
 
 INSERT INTO bairro (nome, cidade, uf, latitude, longitude) VALUES ('Pinheiros',        UNISTR('S\00E3o Paulo'), 'SP', -23.5670, -46.7020);
@@ -17,21 +17,5 @@ INSERT INTO bairro (nome, cidade, uf, latitude, longitude) VALUES (UNISTR('Butan
 INSERT INTO bairro (nome, cidade, uf, latitude, longitude) VALUES (UNISTR('Freguesia do \00D3'),   UNISTR('S\00E3o Paulo'), 'SP', -23.4990, -46.6940);
 INSERT INTO bairro (nome, cidade, uf, latitude, longitude) VALUES ('Itaquera',         UNISTR('S\00E3o Paulo'), 'SP', -23.5400, -46.4550);
 INSERT INTO bairro (nome, cidade, uf, latitude, longitude) VALUES ('Ipiranga',         UNISTR('S\00E3o Paulo'), 'SP', -23.5870, -46.6100);
-
-INSERT INTO abrigo (id_bairro, nome, endereco, latitude, longitude, capacidade, telefone)
-SELECT id_bairro, UNISTR('Gin\00E1sio Poliesportivo (exemplo)'), UNISTR('Endere\00E7o de exemplo, Pinheiros'), -23.5650, -46.7000, 300, NULL
-  FROM bairro WHERE nome = 'Pinheiros';
-INSERT INTO abrigo (id_bairro, nome, endereco, latitude, longitude, capacidade, telefone)
-SELECT id_bairro, 'Escola Municipal (exemplo)', UNISTR('Endere\00E7o de exemplo, Mooca'), -23.5570, -46.6010, 200, NULL
-  FROM bairro WHERE nome = 'Mooca';
-INSERT INTO abrigo (id_bairro, nome, endereco, latitude, longitude, capacidade, telefone)
-SELECT id_bairro, UNISTR('Centro Comunit\00E1rio (exemplo)'), UNISTR('Endere\00E7o de exemplo, Penha'), -23.5240, -46.5450, 150, NULL
-  FROM bairro WHERE nome = 'Penha';
-INSERT INTO abrigo (id_bairro, nome, endereco, latitude, longitude, capacidade, telefone)
-SELECT id_bairro, 'Igreja Paroquial (exemplo)', UNISTR('Endere\00E7o de exemplo, Santo Amaro'), -23.6520, -46.7090, 120, NULL
-  FROM bairro WHERE nome = 'Santo Amaro';
-INSERT INTO abrigo (id_bairro, nome, endereco, latitude, longitude, capacidade, telefone)
-SELECT id_bairro, 'Quadra da Escola (exemplo)', UNISTR('Endere\00E7o de exemplo, Lapa'), -23.5210, -46.7030, 180, NULL
-  FROM bairro WHERE nome = 'Lapa';
 
 COMMIT;

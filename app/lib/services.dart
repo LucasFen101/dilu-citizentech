@@ -89,6 +89,27 @@ Future<QualidadeAr?> buscarQualidadeAr(double lat, double lon) async {
   }
 }
 
+/// Locais que costumam virar abrigo perto de um ponto (OpenStreetMap). A busca passa
+/// pela API do Dilu, que guarda o resultado no Oracle. Null se não houver dados.
+Future<List<LocalApoio>?> buscarLocaisApoio(double lat, double lon) async {
+  Map<String, dynamic> resposta;
+  try {
+    resposta = await Api.locaisApoio(lat, lon);
+  } on ApiException {
+    return null;
+  }
+  if (resposta['fonte'] == 'indisponivel') return null;
+  final lista = lerLocaisApoio(resposta);
+  const d = Distance();
+  for (final l in lista) {
+    l.distanciaKm = d.as(LengthUnit.Meter, LatLng(lat, lon), LatLng(l.latitude, l.longitude)) / 1000;
+  }
+  // mais perto primeiro; ginásios e escolas públicas ganham um pequeno empurrão
+  lista.sort((a, b) => (a.distanciaKm + a.prioridade * 0.3).compareTo(b.distanciaKm + b.prioridade * 0.3));
+  // a região do cache tem ~3,5 km de raio: mostra só o que está a até 3 km de você
+  return lista.where((l) => l.distanciaKm <= 3).take(40).toList();
+}
+
 /// Previsão dos próximos 7 dias (máxima, mínima, chuva, UV) para a ficha da cidade.
 Future<List<PrevisaoDia>?> buscarPrevisao7Dias(double lat, double lon) async {
   try {
