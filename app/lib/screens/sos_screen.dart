@@ -4,6 +4,7 @@ import '../api.dart';
 import '../models.dart';
 import '../services.dart';
 import '../theme.dart';
+import '../widgets.dart';
 
 /// Botões de emergência, contatos de confiança e telefones úteis.
 class SosScreen extends StatefulWidget {
@@ -44,7 +45,8 @@ class _SosScreenState extends State<SosScreen> {
         icon: Icon(pedirAjuda ? Icons.crisis_alert : Icons.verified_user, color: pedirAjuda ? kBrasa : kMusgo, size: 40),
         title: Text(pedirAjuda ? 'Pedir ajuda agora?' : 'Avisar que está seguro?'),
         content: Text(pedirAjuda
-            ? 'Vamos registrar sua localização, avisar moradores do seu bairro e preparar uma mensagem para seus contatos.'
+            ? 'Vamos avisar os moradores do seu bairro e preparar uma mensagem com a sua localização para os seus contatos. '
+                'Se a vida estiver em risco, ligue 193 agora.'
             : 'Vamos encerrar seus pedidos de ajuda e preparar uma mensagem tranquilizando seus contatos.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
@@ -61,17 +63,21 @@ class _SosScreenState extends State<SosScreen> {
 
     setState(() => _enviando = true);
     try {
-      final pos = await posicaoAtual() ?? kLocalPadrao;
-      final r = await Api.emergencia(tipo, pos.latitude, pos.longitude, null);
+      // só o pedido de ajuda precisa do ponto no mapa. Sem GPS (ou se demorar demais),
+      // o pedido vai sem localização: nunca com um ponto inventado.
+      final pos = pedirAjuda ? await posicaoAtual().timeout(const Duration(seconds: 8), onTimeout: () => null) : null;
+      final r = await Api.emergencia(tipo, pos?.latitude, pos?.longitude, null);
       if (!mounted) return;
-      final msg = pedirAjuda
-          ? 'ALERTA DILU: ${r.nomeUsuario} precisa de ajuda por causa de alagamento. Localização: ${linkMapa(pos.latitude, pos.longitude)}'
-          : 'DILU: ${r.nomeUsuario} está seguro. Pode ficar tranquilo(a).';
+      final msg = mensagemEmergencia(
+        pedirAjuda: pedirAjuda,
+        nome: r.nomeUsuario,
+        link: pos == null ? null : linkMapa(pos.latitude, pos.longitude),
+      );
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
-        builder: (_) => _AvisarContatos(resultado: r, mensagem: msg, pedirAjuda: pedirAjuda),
+        builder: (_) => _AvisarContatos(resultado: r, mensagem: msg, pedirAjuda: pedirAjuda, comLocalizacao: pos != null),
       );
     } on ApiException catch (e) {
       if (mounted) aviso(context, e.message, erro: true);
@@ -167,9 +173,12 @@ class _SosScreenState extends State<SosScreen> {
             label: const Text('ESTOU SEGURO'),
           ),
         ),
-        const SizedBox(height: 24),
-        Text('Telefones de emergência', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
+        const Text(
+          '"Preciso de ajuda" avisa os vizinhos do seu bairro e prepara uma mensagem de WhatsApp com a sua localização para os seus contatos.',
+          style: TextStyle(fontSize: 13, color: kTintaSuave),
+        ),
+        const Rotulo('Telefones de emergência'),
         Row(children: [
           for (final t in const [('193', 'Bombeiros'), ('199', 'Defesa Civil'), ('190', 'Polícia')])
             Expanded(
@@ -186,13 +195,13 @@ class _SosScreenState extends State<SosScreen> {
               ),
             ),
         ]),
-        const SizedBox(height: 24),
-        Row(children: [
-          Expanded(child: Text('Meus contatos de confiança', style: Theme.of(context).textTheme.titleMedium)),
-          TextButton.icon(onPressed: _novoContato, icon: const Icon(Icons.person_add), label: const Text('Adicionar')),
+        const SizedBox(height: 8),
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          const Expanded(child: Rotulo('Meus contatos de confiança')),
+          TextButton.icon(onPressed: _novoContato, icon: const Icon(Icons.person_add_alt), label: const Text('Adicionar')),
         ]),
         if (_carregando)
-          const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+          const Card(child: Padding(padding: EdgeInsets.all(20), child: LinearProgressIndicator()))
         else if (_contatos.isEmpty)
           const Card(
             child: Padding(
@@ -224,10 +233,12 @@ class _AvisarContatos extends StatelessWidget {
   final ResultadoEmergencia resultado;
   final String mensagem;
   final bool pedirAjuda;
-  const _AvisarContatos({required this.resultado, required this.mensagem, required this.pedirAjuda});
+  final bool comLocalizacao;
+  const _AvisarContatos({required this.resultado, required this.mensagem, required this.pedirAjuda, required this.comLocalizacao});
 
   @override
   Widget build(BuildContext context) {
+    final bairro = resultado.bairro;
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
@@ -236,17 +247,33 @@ class _AvisarContatos extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              Icon(Icons.check_circle, color: kMusgo, size: 32),
+              const Icon(Icons.check_circle, color: kMusgo, size: 32),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(pedirAjuda ? 'Pedido registrado!' : 'Aviso registrado!',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                child: Text(pedirAjuda ? 'Pedido registrado' : 'Aviso registrado', style: Theme.of(context).textTheme.titleLarge),
               ),
             ]),
             const SizedBox(height: 6),
             Text(pedirAjuda
-                ? 'Moradores do seu bairro foram avisados. Ligue também para a Defesa Civil (199) ou Bombeiros (193).'
+                ? '${bairro != null ? 'Os moradores de $bairro que usam o Dilu foram avisados.' : 'Não identificamos o seu bairro para avisar os vizinhos.'} '
+                    'Ligue também para a Defesa Civil (199) ou os Bombeiros (193).'
                 : 'Seus pedidos de ajuda foram encerrados.'),
+            if (pedirAjuda && !comLocalizacao)
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: kAreia, borderRadius: BorderRadius.circular(10)),
+                child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(Icons.location_off_outlined, color: kBrasa),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Não conseguimos a sua localização, então o pedido foi sem o ponto no mapa. '
+                      'Ao ligar ou escrever, diga onde você está (rua, número e um ponto de referência).',
+                    ),
+                  ),
+                ]),
+              ),
             const SizedBox(height: 16),
             if (resultado.contatos.isEmpty)
               const Text('Você não tem contatos cadastrados. Adicione na tela de Emergência para avisar por WhatsApp.')

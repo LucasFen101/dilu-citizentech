@@ -92,20 +92,29 @@ CREATE OR REPLACE PACKAGE pkg_enchente AS
   PROCEDURE sp_marcar_notificacoes_lidas (p_id_usuario NUMBER);
   PROCEDURE sp_expirar_alagamentos (p_qtd OUT NUMBER);
 
-  -- abrigos da comunidade
-  PROCEDURE sp_ativar_abrigo (
+  -- locais seguros da comunidade
+  PROCEDURE sp_cadastrar_local (
     p_id_usuario NUMBER,
     p_nome       VARCHAR2,
-    p_endereco   VARCHAR2,
+    p_tipo       VARCHAR2,
+    p_descricao  VARCHAR2,
     p_lat        NUMBER,
     p_lon        NUMBER,
-    p_tipo       VARCHAR2,
-    p_ref_osm    VARCHAR2,
-    p_id_abrigo  OUT NUMBER
+    p_id_local   OUT NUMBER
   );
-  PROCEDURE sp_confirmar_abrigo (p_id_abrigo NUMBER, p_id_usuario NUMBER);
-  PROCEDURE sp_encerrar_abrigo  (p_id_abrigo NUMBER, p_id_usuario NUMBER);
-  PROCEDURE sp_expirar_abrigos  (p_qtd OUT NUMBER);
+  PROCEDURE sp_avaliar_local (p_id_local NUMBER, p_id_usuario NUMBER, p_seguro VARCHAR2);
+  PROCEDURE sp_remover_local (p_id_local NUMBER, p_id_usuario NUMBER);
+
+  -- meus lugares
+  PROCEDURE sp_salvar_lugar (
+    p_id_usuario NUMBER,
+    p_apelido    VARCHAR2,
+    p_tipo       VARCHAR2,
+    p_lat        NUMBER,
+    p_lon        NUMBER,
+    p_id_lugar   OUT NUMBER
+  );
+  PROCEDURE sp_remover_lugar (p_id_lugar NUMBER, p_id_usuario NUMBER);
 END pkg_enchente;
 /
 
@@ -280,6 +289,8 @@ CREATE OR REPLACE PACKAGE BODY pkg_enchente AS
   ----------------------------------------------------------------------
   -- 'AJUDA' avisa moradores do bairro (trigger). 'SEGURO' encerra
   -- os pedidos de ajuda abertos do proprio usuario.
+  -- Sem GPS (p_lat/p_lon nulos) o pedido vale mesmo assim: usa o bairro
+  -- do cadastro do morador e nao grava nenhum ponto inventado.
   ----------------------------------------------------------------------
   PROCEDURE sp_pedir_ajuda (
     p_id_usuario NUMBER,
@@ -289,9 +300,20 @@ CREATE OR REPLACE PACKAGE BODY pkg_enchente AS
     p_mensagem   VARCHAR2,
     p_id_pedido  OUT NUMBER
   ) IS
+    v_bairro pedido_ajuda.id_bairro%TYPE;
+    v_lat    pedido_ajuda.latitude%TYPE  := p_lat;
+    v_lon    pedido_ajuda.longitude%TYPE := p_lon;
   BEGIN
     IF p_tipo NOT IN ('AJUDA', 'SEGURO') THEN
       RAISE_APPLICATION_ERROR(-20040, 'Tipo deve ser AJUDA ou SEGURO.');
+    END IF;
+
+    IF v_lat IS NULL OR v_lon IS NULL THEN
+      v_lat := NULL;
+      v_lon := NULL;
+      SELECT id_bairro INTO v_bairro FROM usuario WHERE id_usuario = p_id_usuario;
+    ELSE
+      v_bairro := fn_bairro_proximo(v_lat, v_lon);
     END IF;
 
     IF p_tipo = 'SEGURO' THEN
@@ -301,7 +323,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_enchente AS
     END IF;
 
     INSERT INTO pedido_ajuda (id_usuario, id_bairro, latitude, longitude, tipo, mensagem)
-    VALUES (p_id_usuario, fn_bairro_proximo(p_lat, p_lon), p_lat, p_lon, p_tipo, p_mensagem)
+    VALUES (p_id_usuario, v_bairro, v_lat, v_lon, p_tipo, p_mensagem)
     RETURNING id_pedido INTO p_id_pedido;
   END sp_pedir_ajuda;
 
@@ -325,108 +347,148 @@ CREATE OR REPLACE PACKAGE BODY pkg_enchente AS
   END sp_expirar_alagamentos;
 
   ----------------------------------------------------------------------
-  -- Confirmacao de abrigo da comunidade: prolonga a validade em 12h.
+  -- Morador cadastra um local seguro. Valida o tipo, impede repetir o
+  -- mesmo ponto (menos de 30 m de outro local ativo) e limita 10 por pessoa.
+  -- O trigger TRG_LOCAL_NOTIFICA avisa os moradores do bairro.
   ----------------------------------------------------------------------
-  PROCEDURE sp_confirmar_abrigo (p_id_abrigo NUMBER, p_id_usuario NUMBER) IS
-    v_ativo  abrigo.ativo%TYPE;
-    v_origem abrigo.origem%TYPE;
-    v_dono   abrigo.id_usuario%TYPE;
-  BEGIN
-    BEGIN
-      SELECT ativo, origem, id_usuario INTO v_ativo, v_origem, v_dono
-        FROM abrigo WHERE id_abrigo = p_id_abrigo;
-    EXCEPTION
-      WHEN NO_DATA_FOUND THEN
-        RAISE_APPLICATION_ERROR(-20051, UNISTR('Abrigo n\00E3o encontrado.'));
-    END;
-
-    IF v_ativo <> 'S' OR v_origem <> 'COMUNIDADE' THEN
-      RAISE_APPLICATION_ERROR(-20051, UNISTR('Este abrigo n\00E3o est\00E1 mais marcado como funcionando.'));
-    END IF;
-    IF v_dono = p_id_usuario THEN
-      RAISE_APPLICATION_ERROR(-20052, UNISTR('Voc\00EA j\00E1 marcou este local como abrigo.'));
-    END IF;
-
-    INSERT INTO confirmacao_abrigo (id_abrigo, id_usuario)
-    VALUES (p_id_abrigo, p_id_usuario);
-
-    UPDATE abrigo
-       SET expira_em = GREATEST(expira_em, SYSTIMESTAMP) + INTERVAL '12' HOUR
-     WHERE id_abrigo = p_id_abrigo;
-  EXCEPTION
-    WHEN DUP_VAL_ON_INDEX THEN
-      RAISE_APPLICATION_ERROR(-20053, UNISTR('Voc\00EA j\00E1 confirmou este abrigo.'));
-  END sp_confirmar_abrigo;
-
-  ----------------------------------------------------------------------
-  -- Um morador marca que um local esta recebendo pessoas. Se o mesmo
-  -- local (mesma referencia do OpenStreetMap ou a menos de 50 m) ja estiver
-  -- marcado, vira uma confirmacao. Validade inicial: 24h.
-  -- O trigger TRG_ABRIGO_NOTIFICA avisa os moradores do bairro.
-  ----------------------------------------------------------------------
-  PROCEDURE sp_ativar_abrigo (
+  PROCEDURE sp_cadastrar_local (
     p_id_usuario NUMBER,
     p_nome       VARCHAR2,
-    p_endereco   VARCHAR2,
+    p_tipo       VARCHAR2,
+    p_descricao  VARCHAR2,
     p_lat        NUMBER,
     p_lon        NUMBER,
-    p_tipo       VARCHAR2,
-    p_ref_osm    VARCHAR2,
-    p_id_abrigo  OUT NUMBER
+    p_id_local   OUT NUMBER
   ) IS
+    c_maximo CONSTANT PLS_INTEGER := 10;
+    v_qtd    PLS_INTEGER;
   BEGIN
     IF TRIM(p_nome) IS NULL THEN
-      RAISE_APPLICATION_ERROR(-20050, UNISTR('Informe o nome do local.'));
+      RAISE_APPLICATION_ERROR(-20070, UNISTR('Informe o nome do local.'));
+    END IF;
+    IF p_tipo NOT IN ('PONTO_ALTO', 'ACOLHIMENTO', 'PONTO_ENCONTRO', 'DOACAO') THEN
+      RAISE_APPLICATION_ERROR(-20070, UNISTR('Tipo de local inv\00E1lido.'));
     END IF;
 
+    SELECT COUNT(*) INTO v_qtd
+      FROM local_seguro
+     WHERE ativo = 'S'
+       AND fn_distancia_km(latitude, longitude, p_lat, p_lon) < 0.03;
+    IF v_qtd > 0 THEN
+      RAISE_APPLICATION_ERROR(-20071, UNISTR('J\00E1 existe um local seguro neste ponto. Avalie o que est\00E1 no mapa.'));
+    END IF;
+
+    SELECT COUNT(*) INTO v_qtd
+      FROM local_seguro
+     WHERE id_usuario = p_id_usuario AND ativo = 'S';
+    IF v_qtd >= c_maximo THEN
+      RAISE_APPLICATION_ERROR(-20072, UNISTR('Voc\00EA j\00E1 cadastrou 10 locais.'));
+    END IF;
+
+    INSERT INTO local_seguro (id_usuario, id_bairro, nome, tipo, descricao, latitude, longitude)
+    VALUES (p_id_usuario, fn_bairro_proximo(p_lat, p_lon), TRIM(p_nome), p_tipo,
+            TRIM(p_descricao), p_lat, p_lon)
+    RETURNING id_local INTO p_id_local;
+  END sp_cadastrar_local;
+
+  ----------------------------------------------------------------------
+  -- Vizinho avalia o local: S = e seguro, N = nao e seguro. Pode mudar o
+  -- voto. Com 3 ou mais "nao" e mais "nao" que "sim", o local sai do mapa.
+  ----------------------------------------------------------------------
+  PROCEDURE sp_avaliar_local (p_id_local NUMBER, p_id_usuario NUMBER, p_seguro VARCHAR2) IS
+    v_ativo local_seguro.ativo%TYPE;
+    v_dono  local_seguro.id_usuario%TYPE;
+    v_sim   PLS_INTEGER;
+    v_nao   PLS_INTEGER;
+  BEGIN
+    IF p_seguro NOT IN ('S', 'N') THEN
+      RAISE_APPLICATION_ERROR(-20073, 'Voto deve ser S ou N.');
+    END IF;
     BEGIN
-      SELECT id_abrigo INTO p_id_abrigo
-        FROM abrigo
-       WHERE ativo = 'S'
-         AND origem = 'COMUNIDADE'
-         AND ((p_ref_osm IS NOT NULL AND ref_osm = p_ref_osm)
-              OR fn_distancia_km(latitude, longitude, p_lat, p_lon) < 0.05)
-         AND ROWNUM = 1;
-      sp_confirmar_abrigo(p_id_abrigo, p_id_usuario);
-      RETURN;
+      SELECT ativo, id_usuario INTO v_ativo, v_dono
+        FROM local_seguro WHERE id_local = p_id_local;
     EXCEPTION
-      WHEN NO_DATA_FOUND THEN NULL; -- local ainda nao marcado: cria abaixo
+      WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20074, UNISTR('Local n\00E3o encontrado.'));
     END;
-
-    INSERT INTO abrigo (id_bairro, nome, endereco, latitude, longitude, ativo,
-                        origem, tipo, ref_osm, id_usuario, expira_em)
-    VALUES (fn_bairro_proximo(p_lat, p_lon), TRIM(p_nome), p_endereco, p_lat, p_lon, 'S',
-            'COMUNIDADE', p_tipo, p_ref_osm, p_id_usuario, SYSTIMESTAMP + INTERVAL '24' HOUR)
-    RETURNING id_abrigo INTO p_id_abrigo;
-  END sp_ativar_abrigo;
-
-  ----------------------------------------------------------------------
-  -- Quem marcou pode avisar que o abrigo fechou ou lotou.
-  ----------------------------------------------------------------------
-  PROCEDURE sp_encerrar_abrigo (p_id_abrigo NUMBER, p_id_usuario NUMBER) IS
-  BEGIN
-    UPDATE abrigo
-       SET ativo = 'N', expira_em = SYSTIMESTAMP
-     WHERE id_abrigo = p_id_abrigo
-       AND id_usuario = p_id_usuario
-       AND origem = 'COMUNIDADE'
-       AND ativo = 'S';
-    IF SQL%ROWCOUNT = 0 THEN
-      RAISE_APPLICATION_ERROR(-20054,
-        UNISTR('S\00F3 quem marcou o abrigo pode encerr\00E1-lo, e ele precisa estar ativo.'));
+    IF v_ativo <> 'S' THEN
+      RAISE_APPLICATION_ERROR(-20074, UNISTR('Este local n\00E3o est\00E1 mais no mapa.'));
     END IF;
-  END sp_encerrar_abrigo;
+    IF v_dono = p_id_usuario THEN
+      RAISE_APPLICATION_ERROR(-20075, UNISTR('Voc\00EA n\00E3o pode avaliar o local que cadastrou.'));
+    END IF;
+
+    MERGE INTO avaliacao_local a
+    USING (SELECT p_id_local AS id_local, p_id_usuario AS id_usuario FROM dual) s
+       ON (a.id_local = s.id_local AND a.id_usuario = s.id_usuario)
+     WHEN MATCHED THEN UPDATE SET seguro = p_seguro, criado_em = SYSTIMESTAMP
+     WHEN NOT MATCHED THEN INSERT (id_local, id_usuario, seguro) VALUES (p_id_local, p_id_usuario, p_seguro);
+
+    SELECT COUNT(CASE WHEN seguro = 'S' THEN 1 END),
+           COUNT(CASE WHEN seguro = 'N' THEN 1 END)
+      INTO v_sim, v_nao
+      FROM avaliacao_local WHERE id_local = p_id_local;
+    IF v_nao >= 3 AND v_nao > v_sim THEN
+      UPDATE local_seguro SET ativo = 'N' WHERE id_local = p_id_local;
+    END IF;
+  END sp_avaliar_local;
 
   ----------------------------------------------------------------------
-  -- Chamada pelo job: desativa abrigos da comunidade sem confirmacao recente.
+  -- Quem cadastrou pode tirar o local do mapa.
   ----------------------------------------------------------------------
-  PROCEDURE sp_expirar_abrigos (p_qtd OUT NUMBER) IS
+  PROCEDURE sp_remover_local (p_id_local NUMBER, p_id_usuario NUMBER) IS
   BEGIN
-    UPDATE abrigo
+    UPDATE local_seguro
        SET ativo = 'N'
-     WHERE origem = 'COMUNIDADE' AND ativo = 'S' AND expira_em < SYSTIMESTAMP;
-    p_qtd := SQL%ROWCOUNT;
-  END sp_expirar_abrigos;
+     WHERE id_local = p_id_local AND id_usuario = p_id_usuario AND ativo = 'S';
+    IF SQL%ROWCOUNT = 0 THEN
+      RAISE_APPLICATION_ERROR(-20076, UNISTR('S\00F3 quem cadastrou pode remover o local.'));
+    END IF;
+  END sp_remover_local;
+
+  ----------------------------------------------------------------------
+  -- Salva um lugar acompanhado (casa, trabalho...). Valida o limite de 5,
+  -- o tipo e as coordenadas, e descobre o bairro pelo ponto.
+  ----------------------------------------------------------------------
+  PROCEDURE sp_salvar_lugar (
+    p_id_usuario NUMBER,
+    p_apelido    VARCHAR2,
+    p_tipo       VARCHAR2,
+    p_lat        NUMBER,
+    p_lon        NUMBER,
+    p_id_lugar   OUT NUMBER
+  ) IS
+    c_maximo CONSTANT PLS_INTEGER := 5;
+    v_total  PLS_INTEGER;
+  BEGIN
+    IF TRIM(p_apelido) IS NULL THEN
+      RAISE_APPLICATION_ERROR(-20060, UNISTR('D\00EA um nome para o lugar.'));
+    END IF;
+    IF p_lat NOT BETWEEN -90 AND 90 OR p_lon NOT BETWEEN -180 AND 180 THEN
+      RAISE_APPLICATION_ERROR(-20061, UNISTR('Localiza\00E7\00E3o inv\00E1lida.'));
+    END IF;
+
+    SELECT COUNT(*) INTO v_total FROM lugar_usuario WHERE id_usuario = p_id_usuario;
+    IF v_total >= c_maximo THEN
+      RAISE_APPLICATION_ERROR(-20062, UNISTR('Voc\00EA j\00E1 tem 5 lugares. Remova um para adicionar outro.'));
+    END IF;
+
+    INSERT INTO lugar_usuario (id_usuario, apelido, tipo, latitude, longitude, id_bairro)
+    VALUES (p_id_usuario, TRIM(p_apelido), NVL(p_tipo, 'OUTRO'), p_lat, p_lon, fn_bairro_proximo(p_lat, p_lon))
+    RETURNING id_lugar INTO p_id_lugar;
+  EXCEPTION
+    WHEN DUP_VAL_ON_INDEX THEN
+      RAISE_APPLICATION_ERROR(-20063, UNISTR('Voc\00EA j\00E1 tem um lugar com esse nome.'));
+  END sp_salvar_lugar;
+
+  ----------------------------------------------------------------------
+  PROCEDURE sp_remover_lugar (p_id_lugar NUMBER, p_id_usuario NUMBER) IS
+  BEGIN
+    DELETE FROM lugar_usuario WHERE id_lugar = p_id_lugar AND id_usuario = p_id_usuario;
+    IF SQL%ROWCOUNT = 0 THEN
+      RAISE_APPLICATION_ERROR(-20064, UNISTR('Lugar n\00E3o encontrado.'));
+    END IF;
+  END sp_remover_lugar;
 
 END pkg_enchente;
 /
@@ -511,7 +573,7 @@ BEGIN
   SELECT u.id_usuario,
          'RISCO',
          'Risco ' || :NEW.nivel_risco || ' de alagamento em ' || :NEW.nome,
-         UNISTR('V\00E1rios relatos da comunidade indicam alagamento. Evite a regi\00E3o e consulte os abrigos.')
+         UNISTR('V\00E1rios relatos da comunidade indicam alagamento. Evite a regi\00E3o e veja os locais seguros no app.')
     FROM usuario u
    WHERE u.id_bairro = :NEW.id_bairro;
 END trg_bairro_notifica;
@@ -535,26 +597,32 @@ BEGIN
 END trg_pedido_ajuda_notifica;
 /
 
--- ------------------------------------------------ TRIGGER: abrigo aberto
--- Quando um morador marca um abrigo, avisa os outros moradores do bairro.
-CREATE OR REPLACE TRIGGER trg_abrigo_notifica
-AFTER INSERT ON abrigo
+-- ------------------------------------------------ TRIGGER: novo local seguro
+-- Quando um morador cadastra um local seguro, avisa os outros moradores do bairro.
+CREATE OR REPLACE TRIGGER trg_local_notifica
+AFTER INSERT ON local_seguro
 FOR EACH ROW
-WHEN (NEW.origem = 'COMUNIDADE' AND NEW.id_bairro IS NOT NULL)
+WHEN (NEW.id_bairro IS NOT NULL)
 BEGIN
   INSERT INTO notificacao (id_usuario, tipo, titulo, mensagem)
   SELECT u.id_usuario,
-         'ABRIGO',
-         UNISTR('Abrigo funcionando perto de voc\00EA'),
-         'Moradores indicam que ' || :NEW.nome || UNISTR(' est\00E1 recebendo pessoas. ')
-           || UNISTR('Confirme com a Defesa Civil (199) antes de ir.')
+         'LOCAL',
+         UNISTR('Novo local seguro perto de voc\00EA'),
+         SUBSTR('Um vizinho cadastrou "' || :NEW.nome || '" como '
+           || CASE :NEW.tipo
+                WHEN 'PONTO_ALTO'     THEN 'ponto alto'
+                WHEN 'ACOLHIMENTO'    THEN 'local que acolhe pessoas'
+                WHEN 'PONTO_ENCONTRO' THEN 'ponto de encontro'
+                ELSE TO_CHAR(UNISTR('ponto de doa\00E7\00F5es'))
+              END
+           || UNISTR('. Veja no mapa e avalie se \00E9 seguro.'), 1, 300)
     FROM usuario u
    WHERE u.id_bairro = :NEW.id_bairro
      AND (u.id_usuario <> :NEW.id_usuario OR :NEW.id_usuario IS NULL);
-END trg_abrigo_notifica;
+END trg_local_notifica;
 /
 
--- ------------------------------------------------ JOB: expirar relatos e abrigos
+-- ------------------------------------------------ JOB: expirar relatos
 BEGIN
   BEGIN
     DBMS_SCHEDULER.DROP_JOB('JOB_EXPIRAR_ALAGAMENTOS', force => TRUE);
@@ -565,12 +633,11 @@ BEGIN
   DBMS_SCHEDULER.CREATE_JOB(
     job_name        => 'JOB_EXPIRAR_ALAGAMENTOS',
     job_type        => 'PLSQL_BLOCK',
-    job_action      => 'DECLARE v NUMBER; BEGIN pkg_enchente.sp_expirar_alagamentos(v); '
-                       || 'pkg_enchente.sp_expirar_abrigos(v); COMMIT; END;',
+    job_action      => 'DECLARE v NUMBER; BEGIN pkg_enchente.sp_expirar_alagamentos(v); COMMIT; END;',
     start_date      => SYSTIMESTAMP,
     repeat_interval => 'FREQ=MINUTELY;INTERVAL=15',
     enabled         => TRUE,
-    comments        => 'Expira relatos de alagamento e abrigos da comunidade vencidos');
+    comments        => 'Expira relatos de alagamento vencidos e recalcula o risco');
 END;
 /
 

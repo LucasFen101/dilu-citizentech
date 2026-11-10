@@ -82,8 +82,9 @@ CREATE TABLE pedido_ajuda (
   id_usuario   NUMBER NOT NULL
                CONSTRAINT fk_pedido_usuario REFERENCES usuario(id_usuario),
   id_bairro    NUMBER CONSTRAINT fk_pedido_bairro REFERENCES bairro(id_bairro),
-  latitude     NUMBER(9,6) NOT NULL,
-  longitude    NUMBER(9,6) NOT NULL,
+  -- localizacao opcional: sem GPS o pedido vale mesmo assim (nunca se grava um ponto inventado)
+  latitude     NUMBER(9,6),
+  longitude    NUMBER(9,6),
   tipo         VARCHAR2(10) NOT NULL
                CONSTRAINT ck_pedido_tipo CHECK (tipo IN ('AJUDA','SEGURO')),
   mensagem     VARCHAR2(300),
@@ -95,54 +96,60 @@ CREATE TABLE pedido_ajuda (
 CREATE INDEX ix_pedido_bairro  ON pedido_ajuda (id_bairro, tipo, status);
 CREATE INDEX ix_pedido_usuario ON pedido_ajuda (id_usuario);
 
--- ---------------------------------------------------------------- ABRIGO
--- Abrigo OFICIAL (cadastrado pela Defesa Civil/prefeitura) ou da COMUNIDADE:
--- um morador marca que um local (escola, ginasio... vindo do OpenStreetMap)
--- esta recebendo pessoas. O da comunidade expira se ninguem confirmar.
-CREATE TABLE abrigo (
-  id_abrigo   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  id_bairro   NUMBER
-              CONSTRAINT fk_abrigo_bairro REFERENCES bairro(id_bairro),
-  nome        VARCHAR2(120) NOT NULL,
-  endereco    VARCHAR2(200),
-  latitude    NUMBER(9,6) NOT NULL,
-  longitude   NUMBER(9,6) NOT NULL,
-  capacidade  NUMBER(6),
-  telefone    VARCHAR2(20),
-  ativo       CHAR(1) DEFAULT 'S' NOT NULL
-              CONSTRAINT ck_abrigo_ativo CHECK (ativo IN ('S','N')),
-  origem      VARCHAR2(10) DEFAULT 'OFICIAL' NOT NULL
-              CONSTRAINT ck_abrigo_origem CHECK (origem IN ('OFICIAL','COMUNIDADE')),
-  tipo        VARCHAR2(40),
-  ref_osm     VARCHAR2(30),
-  id_usuario  NUMBER
-              CONSTRAINT fk_abrigo_usuario REFERENCES usuario(id_usuario) ON DELETE SET NULL,
-  criado_em   TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
-  expira_em   TIMESTAMP
+-- ----------------------------------------------------------- LOCAL_SEGURO
+-- Locais seguros cadastrados pela comunidade: ponto alto (para deixar o
+-- carro ou se proteger da agua), local que acolhe pessoas, ponto de
+-- encontro e ponto de doacao. Os vizinhos avaliam se e mesmo seguro.
+CREATE TABLE local_seguro (
+  id_local   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  id_usuario NUMBER
+             CONSTRAINT fk_local_usuario REFERENCES usuario(id_usuario) ON DELETE SET NULL,
+  id_bairro  NUMBER
+             CONSTRAINT fk_local_bairro REFERENCES bairro(id_bairro),
+  nome       VARCHAR2(80) NOT NULL,
+  tipo       VARCHAR2(15) NOT NULL
+             CONSTRAINT ck_local_tipo CHECK (tipo IN ('PONTO_ALTO','ACOLHIMENTO','PONTO_ENCONTRO','DOACAO')),
+  descricao  VARCHAR2(300),
+  latitude   NUMBER(9,6) NOT NULL,
+  longitude  NUMBER(9,6) NOT NULL,
+  ativo      CHAR(1) DEFAULT 'S' NOT NULL
+             CONSTRAINT ck_local_ativo CHECK (ativo IN ('S','N')),
+  criado_em  TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
 );
-CREATE INDEX ix_abrigo_bairro ON abrigo (id_bairro);
-CREATE INDEX ix_abrigo_ativo  ON abrigo (ativo, origem);
-CREATE INDEX ix_abrigo_osm    ON abrigo (ref_osm);
+CREATE INDEX ix_local_bairro  ON local_seguro (id_bairro);
+CREATE INDEX ix_local_usuario ON local_seguro (id_usuario);
+CREATE INDEX ix_local_ativo   ON local_seguro (ativo);
 
--- ----------------------------------------------------- CACHE_LOCAIS_OSM
--- Resposta do OpenStreetMap (Overpass) por "celula" do mapa (~2 km).
--- Evita repetir a mesma busca e mantem o app funcionando se o Overpass cair.
-CREATE TABLE cache_locais_osm (
-  celula     VARCHAR2(30) PRIMARY KEY,
-  resposta   CLOB NOT NULL
-             CONSTRAINT ck_cache_json CHECK (resposta IS JSON),
-  buscado_em TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
-);
-
--- ------------------------------------------------- CONFIRMACAO_ABRIGO
--- Moradores que confirmam que o abrigo da comunidade continua funcionando.
-CREATE TABLE confirmacao_abrigo (
-  id_abrigo  NUMBER NOT NULL
-             CONSTRAINT fk_confab_abrigo REFERENCES abrigo(id_abrigo) ON DELETE CASCADE,
+-- ---------------------------------------------------------- LUGAR_USUARIO
+-- Lugares que o morador acompanha (casa, trabalho, faculdade...): o app
+-- mostra chuva acumulada e alertas de clima de cada um. Maximo 5 por pessoa.
+CREATE TABLE lugar_usuario (
+  id_lugar   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   id_usuario NUMBER NOT NULL
-             CONSTRAINT fk_confab_usuario REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+             CONSTRAINT fk_lugar_usuario REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  apelido    VARCHAR2(40) NOT NULL,
+  tipo       VARCHAR2(10) DEFAULT 'OUTRO' NOT NULL
+             CONSTRAINT ck_lugar_tipo CHECK (tipo IN ('CASA','TRABALHO','ESTUDO','FAMILIA','OUTRO')),
+  latitude   NUMBER(9,6) NOT NULL,
+  longitude  NUMBER(9,6) NOT NULL,
+  id_bairro  NUMBER
+             CONSTRAINT fk_lugar_bairro REFERENCES bairro(id_bairro),
   criado_em  TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
-  CONSTRAINT pk_confirmacao_abrigo PRIMARY KEY (id_abrigo, id_usuario)
+  CONSTRAINT uq_lugar_apelido UNIQUE (id_usuario, apelido)
+);
+CREATE INDEX ix_lugar_usuario ON lugar_usuario (id_usuario);
+
+-- -------------------------------------------------------- AVALIACAO_LOCAL
+-- Voto de cada vizinho: o local e seguro (S) ou nao e (N). Um voto por pessoa.
+CREATE TABLE avaliacao_local (
+  id_local   NUMBER NOT NULL
+             CONSTRAINT fk_aval_local REFERENCES local_seguro(id_local) ON DELETE CASCADE,
+  id_usuario NUMBER NOT NULL
+             CONSTRAINT fk_aval_usuario REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  seguro     CHAR(1) NOT NULL
+             CONSTRAINT ck_aval_seguro CHECK (seguro IN ('S','N')),
+  criado_em  TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+  CONSTRAINT pk_avaliacao_local PRIMARY KEY (id_local, id_usuario)
 );
 
 -- ----------------------------------------------------------- NOTIFICACAO
@@ -151,7 +158,7 @@ CREATE TABLE notificacao (
   id_usuario     NUMBER NOT NULL
                  CONSTRAINT fk_notif_usuario REFERENCES usuario(id_usuario) ON DELETE CASCADE,
   tipo           VARCHAR2(10) NOT NULL
-                 CONSTRAINT ck_notif_tipo CHECK (tipo IN ('RISCO','AJUDA','ABRIGO','SISTEMA')),
+                 CONSTRAINT ck_notif_tipo CHECK (tipo IN ('RISCO','AJUDA','LOCAL','SISTEMA')),
   titulo         VARCHAR2(120) NOT NULL,
   mensagem       VARCHAR2(300),
   lida           CHAR(1) DEFAULT 'N' NOT NULL
@@ -190,8 +197,8 @@ SELECT b.id_bairro,
        (SELECT COUNT(*) FROM pedido_ajuda p
          WHERE p.id_bairro = b.id_bairro AND p.tipo = 'AJUDA'
            AND p.status = 'ABERTO')                                        AS pedidos_abertos,
-       (SELECT COUNT(*) FROM abrigo s
-         WHERE s.id_bairro = b.id_bairro AND s.ativo = 'S')                AS abrigos
+       (SELECT COUNT(*) FROM local_seguro s
+         WHERE s.id_bairro = b.id_bairro AND s.ativo = 'S')                AS locais_seguros
   FROM bairro b;
 
 -- Numeros gerais do Dilu (tela "Dilu em numeros").

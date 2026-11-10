@@ -14,14 +14,16 @@ import 'map_screen.dart';
 /// Aba principal de enchentes: risco estimado automaticamente (não depende de
 /// ninguém usar o app) e, ao lado, os relatos feitos pela comunidade.
 class EnchentesScreen extends StatefulWidget {
-  const EnchentesScreen({super.key});
+  /// Parte que abre primeiro: 0 = risco, 1 = relatos, 2 = painel.
+  final int abaInicial;
+  const EnchentesScreen({super.key, this.abaInicial = 0});
 
   @override
   State<EnchentesScreen> createState() => _EnchentesScreenState();
 }
 
 class _EnchentesScreenState extends State<EnchentesScreen> {
-  int _aba = 0; // 0 = risco estimado, 1 = relatos da comunidade, 2 = painel por bairro
+  late int _aba = widget.abaInicial; // 0 = risco estimado, 1 = relatos da comunidade, 2 = painel por bairro
 
   @override
   Widget build(BuildContext context) {

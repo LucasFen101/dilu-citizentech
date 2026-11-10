@@ -6,6 +6,7 @@ import '../models.dart';
 import '../services.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'lugares_screen.dart';
 
 /// Aba "Conta": dados do morador, números pessoais, os relatos que ele fez,
 /// preferências e informações sobre o Dilu (ODS, fontes dos dados e limites).
@@ -120,6 +121,8 @@ class _ContaScreenState extends State<ContaScreen> {
               ]),
             ),
           ),
+          const Rotulo('Meus lugares'),
+          const MeusLugares(),
           const Rotulo('Meus números'),
           if (r != null)
             Card(
@@ -208,7 +211,7 @@ class _ContaScreenState extends State<ContaScreen> {
                 children: [
                   _Ods('ODS 11 · Cidades e comunidades sustentáveis',
                       'Meta 11.5: reduzir o número de pessoas afetadas por desastres relacionados à água. O Dilu mostra onde há risco de enchente, '
-                          'reúne relatos da vizinhança e indica abrigos e telefones de emergência.'),
+                          'reúne relatos e locais seguros da vizinhança e indica os telefones de emergência.'),
                   _Ods('ODS 13 · Ação contra a mudança global do clima',
                       'Meta 13.1: reforçar a resiliência e a capacidade de adaptação a riscos relacionados ao clima. O app acompanha chuva, calor e umidade '
                           'em todo o Brasil e orienta o que fazer antes, durante e depois de eventos extremos.'),
@@ -230,7 +233,8 @@ class _ContaScreenState extends State<ContaScreen> {
                   _Linha('Radar de chuva', 'Imagens das últimas 2 horas do RainViewer, que reúne radares meteorológicos do mundo todo.'),
                   _Linha('Vazão dos rios', 'Modelo global GloFAS, pela API de enchentes do Open-Meteo.'),
                   _Linha('Relatos e confirmações', 'Feitos pelos moradores e guardados no banco Oracle do Dilu.'),
-                  _Linha('Locais de abrigo', 'Escolas, ginásios e centros comunitários do OpenStreetMap (consulta Overpass).'),
+                  _Linha('Locais seguros', 'Cadastrados e avaliados pelos moradores, guardados no Oracle.'),
+                  _Linha('Chuva acumulada', 'Chuva por hora do Open-Meteo (últimas 24h e próximas 6h).'),
                 ],
               ),
               Divider(height: 1),
@@ -243,8 +247,8 @@ class _ContaScreenState extends State<ContaScreen> {
                   _Linha('Risco estimado', 'É uma estimativa por modelo, a partir da chuva acumulada e prevista. Não substitui os alertas oficiais da Defesa Civil.'),
                   _Linha('Previsão por cidade', 'Representa o centro da cidade. Para ver a chuva real, ligue o radar na aba Clima.'),
                   _Linha('Radar', 'A cobertura de radares no Brasil não é completa: em partes do Norte e do Centro-Oeste pode haver chuva que o radar não mostra.'),
-                  _Linha('Abrigos', 'Os locais da lista são escolas, ginásios e centros comunitários que costumam virar abrigo, não abrigos abertos. '
-                      '"Funcionando agora" é informado pelos moradores. Confirme sempre com a Defesa Civil (199).'),
+                  _Linha('Locais seguros', 'São indicados pelos moradores, não pela Defesa Civil. Os vizinhos avaliam, e locais com muitos votos '
+                      '"não é seguro" saem do mapa. Em emergência, ligue 199.'),
                 ],
               ),
             ]),

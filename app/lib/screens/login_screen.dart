@@ -123,7 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     fontSize: 26, fontStyle: FontStyle.italic, fontWeight: FontWeight.w400, color: kPapel, height: 1.2),
                               ),
                               const SizedBox(height: 10),
-                              Text('Alagamentos reportados e confirmados por quem mora perto.',
+                              Text('Risco de enchente no seu ponto, clima extremo e a ajuda de quem mora perto.',
                                   style: GoogleFonts.manrope(fontSize: 14.5, color: kPapel.withValues(alpha: 0.75))),
                             ],
                           ),

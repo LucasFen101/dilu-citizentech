@@ -13,6 +13,7 @@ import '../radar.dart';
 import '../services.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'lugares_screen.dart';
 
 enum CamadaClima { chuva, temperatura, umidade, ar }
 
@@ -773,6 +774,8 @@ class _Detalhe extends StatefulWidget {
 
 class _DetalheState extends State<_Detalhe> {
   late final Future<List<PrevisaoDia>?> _semana = buscarPrevisao7Dias(widget.celula.centro.latitude, widget.celula.centro.longitude);
+  late final Future<ChuvaAcumulada?> _acumulada =
+      buscarChuvaAcumulada(widget.celula.centro.latitude, widget.celula.centro.longitude);
 
   @override
   Widget build(BuildContext context) {
@@ -850,7 +853,17 @@ class _DetalheState extends State<_Detalhe> {
                   dado('${c.aqi}', c.pm25 != null ? 'qualidade do ar · PM2,5 ${c.pm25!.round()} µg/m³' : 'qualidade do ar'),
               ],
             ),
-            const Rotulo('Próximos 7 dias'),
+            const Rotulo('Chuva acumulada (mm)'),
+          FutureBuilder<ChuvaAcumulada?>(
+            future: _acumulada,
+            builder: (_, snap) {
+              if (snap.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+              final c = snap.data;
+              if (c == null) return const Text('Indisponível agora.', style: TextStyle(color: kTintaSuave));
+              return ChuvaAcumuladaLinha(chuva: c);
+            },
+          ),
+          const Rotulo('Próximos 7 dias'),
             FutureBuilder<List<PrevisaoDia>?>(
               future: _semana,
               builder: (_, snap) {

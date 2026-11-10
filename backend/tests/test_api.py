@@ -27,7 +27,7 @@ def _limpar():
                         f"OR id_alagamento IN (SELECT id_alagamento FROM alagamento WHERE id_usuario IN {ids})")
             cur.execute(f"DELETE FROM alagamento WHERE id_usuario IN {ids}")
             cur.execute(f"DELETE FROM pedido_ajuda WHERE id_usuario IN {ids}")
-            cur.execute(f"DELETE FROM abrigo WHERE id_usuario IN {ids}")  # confirmacoes caem em cascata
+            cur.execute(f"DELETE FROM local_seguro WHERE id_usuario IN {ids}")  # avaliacoes caem em cascata
             cur.execute("DELETE FROM usuario WHERE email LIKE '%@teste-api.com'")
             cur.execute("BEGIN FOR b IN (SELECT id_bairro FROM bairro) LOOP "
                         "pkg_enchente.sp_recalcular_risco(b.id_bairro); END LOOP; END;")
@@ -107,28 +107,6 @@ def test_fluxo_completo(client):
     assert client.post("/notificacoes/lidas", headers=bruno).status_code == 200
     assert all(n["lida"] == "S" for n in client.get("/notificacoes", headers=bruno).json())
 
-    # abrigo da comunidade: Ana marca uma escola (vinda do OpenStreetMap) como recebendo pessoas
-    escola = {"nome": "EMEF Teste", "endereco": "Rua Taquari 459", "latitude": MOOCA[0] + 0.002,
-              "longitude": MOOCA[1], "tipo": "Escola municipal", "ref_osm": "way/123456"}
-    r = client.post("/abrigos/ativar", headers=ana, json=escola)
-    assert r.status_code == 201, r.text
-    id_abrigo = r.json()["id_abrigo"]
-    assert client.post("/abrigos/ativar", headers=ana, json=escola).status_code == 409  # ja marcou
-    # Bruno marca o mesmo local: vira confirmacao do mesmo abrigo (nao duplica)
-    assert client.post("/abrigos/ativar", headers=bruno, json=escola).json()["id_abrigo"] == id_abrigo
-    assert client.post(f"/abrigos/{id_abrigo}/confirmar", headers=bruno).status_code == 409
-    abrigos = client.get("/abrigos", headers=bruno, params={"latitude": MOOCA[0], "longitude": MOOCA[1]}).json()
-    a = next(x for x in abrigos if x["id_abrigo"] == id_abrigo)
-    assert a["origem"] == "COMUNIDADE" and a["bairro"] == "Mooca" and a["confirmacoes"] == 1
-    assert a["confirmado_por_mim"] is True and a["meu"] is False and a["ref_osm"] == "way/123456"
-    # trigger avisou o vizinho
-    assert any(n["tipo"] == "ABRIGO" for n in client.get("/notificacoes", headers=bruno).json())
-    # so quem marcou encerra
-    assert client.post(f"/abrigos/{id_abrigo}/encerrar", headers=bruno).status_code == 403
-    assert client.post(f"/abrigos/{id_abrigo}/encerrar", headers=ana).status_code == 200
-    assert client.post(f"/abrigos/{id_abrigo}/confirmar", headers=bruno).status_code == 404
-    assert client.post("/abrigos/ativar", headers=ana, json={**escola, "ref_osm": "x"}).status_code == 422
-
     # resumo pessoal e lista dos meus relatos (aba Conta)
     meu = client.get("/me/resumo", headers=ana).json()
     assert meu["relatos_total"] == 1 and meu["relatos_ativos"] == 1 and meu["confirmacoes_recebidas"] == 1
@@ -148,42 +126,106 @@ def test_fluxo_completo(client):
     assert mooca["nivel_risco"] == "BAIXO"
 
 
-def test_cache_locais_osm(client, monkeypatch):
-    """Locais de apoio: 1a busca vai ao Overpass e grava no Oracle; depois sai do cache,
-    e com o Overpass fora do ar o cache antigo ainda responde."""
-    from app import osm
+def test_locais_seguros(client):
+    """Locais seguros: cadastro com bairro e aviso aos vizinhos, sem repetir o ponto,
+    votos (um por pessoa, pode mudar) e saida do mapa com 3 votos "nao e seguro"."""
+    gabi = _cadastra(client, "Gabi Teste", "gabi@teste-api.com")
+    vizinhos = [_cadastra(client, f"Vizinho {i}", f"viz{i}@teste-api.com") for i in range(3)]
+    ponto = {"nome": "Estacionamento do mercado (piso 2)", "tipo": "PONTO_ALTO",
+             "descricao": "Piso alto, a agua nunca chegou", "latitude": MOOCA[0] + 0.003, "longitude": MOOCA[1]}
+    r = client.post("/locais-seguros", headers=gabi, json=ponto)
+    assert r.status_code == 201, r.text
+    id_local = r.json()["id_local"]
+    # mesmo ponto (menos de 30 m) nao repete; tipo invalido e barrado
+    assert client.post("/locais-seguros", headers=vizinhos[0], json={**ponto, "nome": "Outro"}).status_code == 409
+    assert client.post("/locais-seguros", headers=gabi, json={**ponto, "tipo": "PRAIA"}).status_code == 422
+    # vizinho do bairro foi avisado pelo trigger
+    assert any(n["tipo"] == "LOCAL" for n in client.get("/notificacoes", headers=vizinhos[0]).json())
 
-    ana = _cadastra(client, "Carla Teste", "carla@teste-api.com")
-    lat, lon = -10.0, -40.0  # ponto sem uso real, so para o teste
-    chave = osm.celula(lat, lon)[0]
-    assert chave == "-10.00:-40.00" and osm.celula(-10.009, -39.991)[0] == chave  # pontos vizinhos dividem a celula
+    perto = {"latitude": MOOCA[0], "longitude": MOOCA[1]}
+    item = next(x for x in client.get("/locais-seguros", headers=vizinhos[0], params=perto).json() if x["id_local"] == id_local)
+    assert item["bairro"] == "Mooca" and item["tipo"] == "PONTO_ALTO" and item["meu"] is False
+    assert item["votos_seguro"] == 0 and item["meu_voto"] is None and item["distancia_km"] < 1
+    assert client.get("/locais-seguros", headers=gabi, params={"latitude": -10, "longitude": -40}).json() == []  # longe
 
-    def limpa():
-        with db.transaction() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM cache_locais_osm WHERE celula = :c", {"c": chave})
+    # votos: dono nao vota; vizinho pode trocar o voto
+    assert client.post(f"/locais-seguros/{id_local}/avaliar", headers=gabi, json={"seguro": True}).status_code == 409
+    assert client.post(f"/locais-seguros/{id_local}/avaliar", headers=vizinhos[0], json={"seguro": True}).status_code == 200
+    assert client.post(f"/locais-seguros/{id_local}/avaliar", headers=vizinhos[0], json={"seguro": False}).status_code == 200
+    item = next(x for x in client.get("/locais-seguros", headers=vizinhos[0], params=perto).json() if x["id_local"] == id_local)
+    assert item["votos_seguro"] == 0 and item["votos_inseguro"] == 1 and item["meu_voto"] == "N"
 
-    limpa()
+    # 3 "nao e seguro" e mais "nao" que "sim": sai do mapa
+    for v in vizinhos[1:]:
+        assert client.post(f"/locais-seguros/{id_local}/avaliar", headers=v, json={"seguro": False}).status_code == 200
+    assert all(x["id_local"] != id_local for x in client.get("/locais-seguros", headers=gabi, params=perto).json())
+    assert client.post(f"/locais-seguros/{id_local}/avaliar", headers=vizinhos[0], json={"seguro": True}).status_code == 404
+
+    # remover: so quem cadastrou
+    r = client.post("/locais-seguros", headers=gabi, json={**ponto, "tipo": "PONTO_ENCONTRO", "nome": "Praca alta"})
+    id2 = r.json()["id_local"]
+    assert client.delete(f"/locais-seguros/{id2}", headers=vizinhos[0]).status_code == 403
+    assert client.delete(f"/locais-seguros/{id2}", headers=gabi).status_code == 200
+
+
+def test_meus_lugares(client):
+    """Lugares: salva com bairro descoberto pela PL/SQL, nao repete nome, limite de 5, remove so o proprio."""
+    dani = _cadastra(client, "Dani Teste", "dani@teste-api.com")
+    outro = _cadastra(client, "Edu Teste", "edu@teste-api.com")
+    r = client.post("/lugares", headers=dani, json={"apelido": "Casa", "tipo": "CASA", "latitude": MOOCA[0], "longitude": MOOCA[1]})
+    assert r.status_code == 201, r.text
+    id_casa = r.json()["id_lugar"]
+    assert client.post("/lugares", headers=dani, json={"apelido": "Casa", "latitude": 0, "longitude": 0}).status_code == 409
+    assert client.post("/lugares", headers=dani, json={"apelido": "X", "tipo": "PRAIA", "latitude": 0, "longitude": 0}).status_code == 422
+    lugares = client.get("/lugares", headers=dani).json()
+    assert lugares == [{"id_lugar": id_casa, "apelido": "Casa", "tipo": "CASA", "latitude": MOOCA[0],
+                        "longitude": MOOCA[1], "bairro": "Mooca"}]
+    for i in range(4):
+        assert client.post("/lugares", headers=dani, json={"apelido": f"L{i}", "latitude": -10, "longitude": -40}).status_code == 201
+    assert client.post("/lugares", headers=dani, json={"apelido": "Sexto", "latitude": -10, "longitude": -40}).status_code == 409
+    assert client.delete(f"/lugares/{id_casa}", headers=outro).status_code == 404
+    assert client.delete(f"/lugares/{id_casa}", headers=dani).status_code == 200
+    assert len(client.get("/lugares", headers=dani).json()) == 4
+
+
+def test_emergencia_sem_gps_e_limite_de_login(client):
+    """Pedido de ajuda sem GPS vale (bairro do cadastro, sem ponto inventado) e
+    5 senhas erradas travam o login por alguns minutos."""
+    from app.security import limite_login
+
+    hugo = _cadastra(client, "Hugo Teste", "hugo@teste-api.com")
+    r = client.post("/emergencia", headers=hugo, json={"tipo": "AJUDA"})
+    assert r.status_code == 201, r.text
+    assert r.json()["bairro"] == "Mooca" and r.json()["com_localizacao"] is False
+    with db.transaction() as conn:
+        p = db.query_one(conn, "SELECT latitude, longitude FROM pedido_ajuda WHERE id_pedido = :id",
+                         {"id": r.json()["id_pedido"]})
+    assert p["latitude"] is None and p["longitude"] is None
+    # latitude sem longitude nao passa
+    assert client.post("/emergencia", headers=hugo, json={"tipo": "AJUDA", "latitude": -23.5}).status_code == 422
+    com_gps = client.post("/emergencia", headers=hugo,
+                          json={"tipo": "SEGURO", "latitude": MOOCA[0], "longitude": MOOCA[1]}).json()
+    assert com_gps["com_localizacao"] is True
+
+    limite_login.limpar()
+    errada = {"email": "hugo@teste-api.com", "senha": "errada"}
+    certa = {"email": "hugo@teste-api.com", "senha": "senha123"}
     try:
-        chamadas = []
-        # resposta grande de proposito (~60 KB), como uma real: exercita a gravacao em CLOB
-        import json as _json
-        elementos = [{"type": "node", "id": i, "lat": -10, "lon": -40,
-                      "tags": {"amenity": "school", "name": "EE Teste" if i == 0 else f"Escola {i:04d} " + "x" * 80}}
-                     for i in range(500)]
-        resposta = _json.dumps({"elements": elementos})
-        monkeypatch.setattr(osm, "_buscar_overpass", lambda *_: chamadas.append(1) or resposta)
-        r = client.get("/locais-apoio", headers=ana, params={"latitude": lat, "longitude": lon}).json()
-        assert r["fonte"] == "openstreetmap" and r["elements"][0]["tags"]["name"] == "EE Teste"
-        r = client.get("/locais-apoio", headers=ana, params={"latitude": lat, "longitude": lon}).json()
-        assert r["fonte"] == "cache" and len(chamadas) == 1  # nao foi ao Overpass de novo
-
-        # cache vencido + Overpass fora do ar: devolve o antigo
-        with db.transaction() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE cache_locais_osm SET buscado_em = SYSTIMESTAMP - 60 WHERE celula = :c", {"c": chave})
-        monkeypatch.setattr(osm, "_buscar_overpass", lambda *_: None)
-        r = client.get("/locais-apoio", headers=ana, params={"latitude": lat, "longitude": lon}).json()
-        assert r["fonte"] == "cache_antigo" and r["elements"]
+        for _ in range(5):
+            assert client.post("/auth/login", json=errada).status_code == 401
+        assert client.post("/auth/login", json=errada).status_code == 429
+        assert client.post("/auth/login", json=certa).status_code == 429  # travado mesmo com a senha certa
+        # outro e-mail nao e afetado
+        assert client.post("/auth/login", json={"email": "outro@teste-api.com", "senha": "x"}).status_code == 401
     finally:
-        limpa()
+        limite_login.limpar()
+    assert client.post("/auth/login", json=certa).status_code == 200
+
+
+def test_contato_repetido(client):
+    """O mesmo telefone nao entra duas vezes nos contatos, mesmo escrito de outro jeito."""
+    ivo = _cadastra(client, "Ivo Teste", "ivo@teste-api.com")
+    assert client.post("/contatos", headers=ivo, json={"nome": "Mae", "telefone": "(11) 98888-7777"}).status_code == 201
+    r = client.post("/contatos", headers=ivo, json={"nome": "Mae de novo", "telefone": "11 988887777"})
+    assert r.status_code == 409 and "telefone" in r.json()["detail"]
+    assert len(client.get("/contatos", headers=ivo).json()) == 1

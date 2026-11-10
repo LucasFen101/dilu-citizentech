@@ -6,6 +6,7 @@ import '../models.dart';
 import '../services.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'lugares_screen.dart';
 
 /// Avisos: alertas do clima agora + avisos gerados pelo banco
 /// (risco do bairro subiu, vizinho pediu ajuda...).
@@ -21,12 +22,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<Notificacao> _lista = [];
   Clima? _clima;
   bool _carregando = true;
+  List<(Lugar, List<AlertaClima>)>? _lugares; // alertas de cada lugar salvo
 
   @override
   void initState() {
     super.initState();
     _carregar();
     _carregarClima();
+    _carregarLugares();
+  }
+
+  /// Alertas de clima e de chuva acumulada para cada lugar que o morador acompanha.
+  Future<void> _carregarLugares() async {
+    try {
+      final lugares = await Api.lugares();
+      final res = await Future.wait(lugares.map((l) async {
+        final r = await Future.wait([buscarClima(l.latitude, l.longitude), buscarChuvaAcumulada(l.latitude, l.longitude)]);
+        final clima = r[0] as Clima?;
+        final acumulada = r[1] as ChuvaAcumulada?;
+        final alertas = <AlertaClima>[
+          if (acumulada != null && alertaChuvaAcumulada(acumulada) != null) alertaChuvaAcumulada(acumulada)!,
+          if (clima != null) ...alertasDoClima(clima),
+        ];
+        return (l, alertas);
+      }));
+      if (mounted) setState(() => _lugares = res);
+    } on ApiException catch (_) {
+      // sem lugares: a seção não aparece
+    }
   }
 
   /// Busca a previsão do local do usuário (sem travar a lista de avisos).
@@ -53,17 +76,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  static const _ordemNivel = ['BAIXO', 'MODERADO', 'ALTO', 'CRITICO'];
+
+  String _maiorNivel(List<AlertaClima> alertas) =>
+      alertas.map((a) => a.nivel).reduce((a, b) => _ordemNivel.indexOf(a) >= _ordemNivel.indexOf(b) ? a : b);
+
   IconData _icone(String tipo) => switch (tipo) {
         'RISCO' => Icons.warning_amber,
         'AJUDA' => Icons.crisis_alert,
-        'ABRIGO' => Icons.home_work,
+        'LOCAL' => Icons.shield,
         _ => Icons.info,
       };
 
   Color _cor(String tipo) => switch (tipo) {
         'RISCO' => corNivel('ALTO'),
         'AJUDA' => kBrasa,
-        'ABRIGO' => kSinal,
+        'LOCAL' => kMusgo,
         _ => kAgua,
       };
 
@@ -108,13 +136,44 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final fmt = DateFormat('dd/MM HH:mm');
     return RefreshIndicator(
       onRefresh: () async {
-        await Future.wait([_carregar(), _carregarClima()]);
+        await Future.wait([_carregar(), _carregarClima(), _carregarLugares()]);
       },
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Rotulo('Clima agora'),
+          const Rotulo('Clima onde você está'),
           _blocoClima(),
+          if (_lugares != null && _lugares!.isNotEmpty) ...[
+            const Rotulo('Seus lugares'),
+            for (final (l, alertas) in _lugares!)
+              Card(
+                shape: alertas.isEmpty
+                    ? null
+                    : RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: corNivel(_maiorNivel(alertas)), width: 2),
+                      ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Icon(iconeLugar(l.tipo), color: kTinta),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(l.apelido, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
+                      if (alertas.isEmpty)
+                        const Etiqueta('Sem alertas', cor: kMusgo, icone: Icons.check)
+                      else
+                        Etiqueta(rotuloNivel(_maiorNivel(alertas)), cor: corNivel(_maiorNivel(alertas))),
+                    ]),
+                    for (final a in alertas) ...[
+                      const SizedBox(height: 8),
+                      Text(a.titulo, style: const TextStyle(fontWeight: FontWeight.w800)),
+                      Text(a.mensagem, style: const TextStyle(color: kTintaSuave)),
+                    ],
+                  ]),
+                ),
+              ),
+          ],
           const Rotulo('Avisos da comunidade'),
           if (_lista.isEmpty)
             const Card(

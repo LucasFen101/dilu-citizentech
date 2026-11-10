@@ -101,6 +101,17 @@ class Api {
     final r = await _enviar(() => http.get(_u('/me/relatos'), headers: _json)) as List;
     return r.map((e) => MeuRelato.fromJson(e)).toList();
   }
+  // ------------------------------------------------------ meus lugares
+  static Future<List<Lugar>> lugares() async {
+    final r = await _enviar(() => http.get(_u('/lugares'), headers: _json)) as List;
+    return r.map((e) => Lugar.fromJson(e)).toList();
+  }
+
+  static Future<void> salvarLugar(String apelido, String tipo, double lat, double lon) => _enviar(() => http.post(_u('/lugares'),
+      headers: _json, body: jsonEncode({'apelido': apelido, 'tipo': tipo, 'latitude': lat, 'longitude': lon})));
+
+  static Future<void> removerLugar(int id) => _enviar(() => http.delete(_u('/lugares/$id'), headers: _json));
+
   // ---------------------------------------------------------- contatos
   static Future<List<Contato>> contatos() async {
     final r = await _enviar(() => http.get(_u('/contatos'), headers: _json)) as List;
@@ -153,7 +164,8 @@ class Api {
   static Future<void> resolver(int id) => _enviar(() => http.post(_u('/alagamentos/$id/resolver'), headers: _json));
 
   // -------------------------------------------------------- emergência
-  static Future<ResultadoEmergencia> emergencia(String tipo, double lat, double lon, String? mensagem) async {
+  /// [lat]/[lon] nulos = sem GPS: o pedido vai sem ponto no mapa (nunca com um ponto inventado).
+  static Future<ResultadoEmergencia> emergencia(String tipo, double? lat, double? lon, String? mensagem) async {
     final r = await _enviar(() => http.post(_u('/emergencia'),
         headers: _json,
         body: jsonEncode({'tipo': tipo, 'latitude': lat, 'longitude': lon, 'mensagem': mensagem})));
@@ -161,40 +173,37 @@ class Api {
       idPedido: r['id_pedido'] as int,
       nomeUsuario: r['nome_usuario'] as String,
       contatos: (r['contatos'] as List).map((e) => Contato.fromJson(e)).toList(),
+      bairro: r['bairro'] as String?,
     );
   }
 
-  // ------------------------------------------------------------ outros
-  static Future<List<Abrigo>> abrigos(double? lat, double? lon) async {
-    final q = (lat != null && lon != null) ? {'latitude': '$lat', 'longitude': '$lon'} : null;
-    final r = await _enviar(() => http.get(_u('/abrigos', q), headers: _json)) as List;
-    return r.map((e) => Abrigo.fromJson(e)).toList();
+  // ---------------------------------------------------- locais seguros
+  static Future<List<LocalSeguro>> locaisSeguros(double lat, double lon) async {
+    final r = await _enviar(() => http.get(_u('/locais-seguros', {'latitude': '$lat', 'longitude': '$lon'}), headers: _json)) as List;
+    return r.map((e) => LocalSeguro.fromJson(e)).toList();
   }
 
-  /// Escolas, ginásios e centros comunitários perto do ponto (OpenStreetMap, com cache no Oracle).
-  /// Na primeira busca de uma região a API consulta o Overpass, que pode demorar.
-  static Future<Map<String, dynamic>> locaisApoio(double lat, double lon) async => Map<String, dynamic>.from(await _enviar(
-      () => http.get(_u('/locais-apoio', {'latitude': '$lat', 'longitude': '$lon'}), headers: _json),
-      limite: const Duration(seconds: 55)));
+  static Future<void> cadastrarLocal({
+    required String nome,
+    required String tipo,
+    String? descricao,
+    required double latitude,
+    required double longitude,
+  }) =>
+      _enviar(() => http.post(_u('/locais-seguros'),
+          headers: _json,
+          body: jsonEncode({
+            'nome': nome,
+            'tipo': tipo,
+            'descricao': (descricao?.trim().isEmpty ?? true) ? null : descricao!.trim(),
+            'latitude': latitude,
+            'longitude': longitude,
+          })));
 
-  /// Marca um local do mapa como "recebendo pessoas" (ou confirma, se já marcado). Devolve o id do abrigo.
-  static Future<int> ativarAbrigo(LocalApoio l) async {
-    final r = await _enviar(() => http.post(_u('/abrigos/ativar'),
-        headers: _json,
-        body: jsonEncode({
-          'nome': l.nome,
-          'endereco': l.endereco,
-          'latitude': l.latitude,
-          'longitude': l.longitude,
-          'tipo': l.tipo,
-          'ref_osm': l.refOsm,
-        })));
-    return r['id_abrigo'] as int;
-  }
+  static Future<void> avaliarLocal(int id, bool seguro) =>
+      _enviar(() => http.post(_u('/locais-seguros/$id/avaliar'), headers: _json, body: jsonEncode({'seguro': seguro})));
 
-  static Future<void> confirmarAbrigo(int id) => _enviar(() => http.post(_u('/abrigos/$id/confirmar'), headers: _json));
-
-  static Future<void> encerrarAbrigo(int id) => _enviar(() => http.post(_u('/abrigos/$id/encerrar'), headers: _json));
+  static Future<void> removerLocal(int id) => _enviar(() => http.delete(_u('/locais-seguros/$id'), headers: _json));
 
   static Future<List<Bairro>> indicadores() async {
     final r = await _enviar(() => http.get(_u('/bairros/indicadores'), headers: _json)) as List;

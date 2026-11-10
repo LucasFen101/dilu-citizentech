@@ -67,7 +67,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _relatar() async {
     final ok = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => ReportScreen(inicial: _minhaPosicao ?? _centro)),
+      MaterialPageRoute(builder: (_) => ReportScreen(inicial: _minhaPosicao ?? _centro, temGps: _minhaPosicao != null)),
     );
     if (ok == true) _carregar(primeira: false);
   }

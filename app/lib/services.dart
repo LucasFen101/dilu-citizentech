@@ -43,6 +43,7 @@ class Sessao {
     try {
       (await SharedPreferences.getInstance()).remove(_kToken);
     } catch (_) {}
+    await Preferencias.apagarRetrato(); // o retrato é da conta que saiu
   }
 
   static Future<void> salvarServidor(String url) async {
@@ -89,25 +90,31 @@ Future<QualidadeAr?> buscarQualidadeAr(double lat, double lon) async {
   }
 }
 
-/// Locais que costumam virar abrigo perto de um ponto (OpenStreetMap). A busca passa
-/// pela API do Dilu, que guarda o resultado no Oracle. Null se não houver dados.
-Future<List<LocalApoio>?> buscarLocaisApoio(double lat, double lon) async {
-  Map<String, dynamic> resposta;
+/// Chuva acumulada das últimas 24h e a prevista nas próximas 6h (Open-Meteo, por hora).
+/// O Open-Meteo combina modelo e observações; não é a medição de um pluviômetro.
+Future<ChuvaAcumulada?> buscarChuvaAcumulada(double lat, double lon) async {
   try {
-    resposta = await Api.locaisApoio(lat, lon);
-  } on ApiException {
+    final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
+      'latitude': lat.toStringAsFixed(3),
+      'longitude': lon.toStringAsFixed(3),
+      'hourly': 'precipitation',
+      'current': 'precipitation',
+      'past_days': '1',
+      'forecast_days': '1',
+      'timezone': 'auto',
+    });
+    final r = await http.get(uri).timeout(const Duration(seconds: 12));
+    if (r.statusCode != 200) return null;
+    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    final h = j['hourly'] as Map<String, dynamic>;
+    return chuvaAcumuladaDe(
+      (h['time'] as List).cast<String>(),
+      (h['precipitation'] as List).map((e) => (e as num?)?.toDouble() ?? 0.0).toList(),
+      (j['current'] as Map<String, dynamic>)['time'] as String,
+    );
+  } catch (_) {
     return null;
   }
-  if (resposta['fonte'] == 'indisponivel') return null;
-  final lista = lerLocaisApoio(resposta);
-  const d = Distance();
-  for (final l in lista) {
-    l.distanciaKm = d.as(LengthUnit.Meter, LatLng(lat, lon), LatLng(l.latitude, l.longitude)) / 1000;
-  }
-  // mais perto primeiro; ginásios e escolas públicas ganham um pequeno empurrão
-  lista.sort((a, b) => (a.distanciaKm + a.prioridade * 0.3).compareTo(b.distanciaKm + b.prioridade * 0.3));
-  // a região do cache tem ~3,5 km de raio: mostra só o que está a até 3 km de você
-  return lista.where((l) => l.distanciaKm <= 3).take(40).toList();
 }
 
 /// Previsão dos próximos 7 dias (máxima, mínima, chuva, UV) para a ficha da cidade.
@@ -185,10 +192,48 @@ class Preferencias {
   /// Quando verdadeiro, o app inteiro usa letras 30% maiores.
   static final ValueNotifier<bool> textoGrande = ValueNotifier(false);
 
+  static const _kKit = 'kit';
+  static const _kRetrato = 'retrato_inicio';
+
+  /// Itens do kit de emergência já separados (posições em [itensKit]).
+  static final ValueNotifier<Set<int>> kit = ValueNotifier(<int>{});
+
   static Future<void> carregar() async {
     try {
       final p = await SharedPreferences.getInstance();
       textoGrande.value = p.getBool(_kTextoGrande) ?? false;
+      kit.value = (p.getStringList(_kKit) ?? const []).map(int.tryParse).whereType<int>().toSet();
+    } catch (_) {}
+  }
+
+  static Future<void> alternarItemKit(int i) async {
+    final novo = {...kit.value};
+    if (!novo.remove(i)) novo.add(i);
+    kit.value = novo;
+    try {
+      (await SharedPreferences.getInstance()).setStringList(_kKit, [for (final x in novo) '$x']);
+    } catch (_) {}
+  }
+
+  /// Último retrato da tela Início (aparece na hora e continua valendo sem internet).
+  static Future<RetratoInicio?> lerRetrato() async {
+    try {
+      final texto = (await SharedPreferences.getInstance()).getString(_kRetrato);
+      return texto == null ? null : RetratoInicio.fromJson(jsonDecode(texto));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> salvarRetrato(RetratoInicio r) async {
+    try {
+      (await SharedPreferences.getInstance()).setString(_kRetrato, jsonEncode(r.toJson()));
+    } catch (_) {}
+  }
+
+  static Future<void> apagarRetrato() async {
+    try {
+      (await SharedPreferences.getInstance()).remove(_kRetrato);
     } catch (_) {}
   }
 

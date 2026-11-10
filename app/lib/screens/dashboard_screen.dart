@@ -121,7 +121,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Text('${b.alagamentosAtivos} ativo(s)'),
                         Text('${b.relatos24h} relato(s) em 24h'),
                         Text('${b.pedidosAbertos} pedido(s) de ajuda'),
-                        Text('${b.abrigos} abrigo(s)'),
+                        Text('${b.locaisSeguros} local(is) seguro(s)'),
                       ]),
                     ],
                   ),

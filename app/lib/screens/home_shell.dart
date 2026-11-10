@@ -8,11 +8,12 @@ import '../widgets.dart';
 import 'clima_screen.dart';
 import 'conta_screen.dart';
 import 'enchentes_screen.dart';
+import 'inicio_screen.dart';
 import 'notifications_screen.dart';
-import 'shelters_screen.dart';
+import 'locais_screen.dart';
 import 'sos_screen.dart';
 
-/// Estrutura principal: barra de navegação com as 4 áreas do app.
+/// Estrutura principal: barra de navegação com as 5 áreas do app (a primeira é o Início).
 /// No topo ficam o texto grande, a conta do morador e o sino de avisos.
 class HomeShell extends StatefulWidget {
   final Future<void> Function() aoSair;
@@ -24,7 +25,9 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _aba = 0;
+  int _sub = 0; // parte da aba a abrir (ex.: Enchentes > Relatos), usada pelos atalhos do Início
   int _naoLidas = 0;
+  String? _nome;
   String? _inicial; // primeira letra do nome, para o botão da conta
   Timer? _timer;
 
@@ -55,7 +58,12 @@ class _HomeShellState extends State<HomeShell> {
   Future<void> _carregarNome() async {
     try {
       final nome = ((await Api.eu())['nome'] as String?)?.trim() ?? '';
-      if (mounted && nome.isNotEmpty) setState(() => _inicial = nome.characters.first.toUpperCase());
+      if (mounted && nome.isNotEmpty) {
+        setState(() {
+          _nome = nome;
+          _inicial = nome.characters.first.toUpperCase();
+        });
+      }
     } on ApiException catch (_) {
       // sem nome: o botão mostra o ícone genérico
     }
@@ -90,15 +98,41 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  /// Atalhos da tela Início para as outras áreas (e para a parte certa de cada uma).
+  void _ir(Destino d) {
+    switch (d) {
+      case Destino.conta:
+        _abrirConta();
+      case Destino.risco:
+        _abrirAba(1);
+      case Destino.relatos:
+        _abrirAba(1, 1);
+      case Destino.clima:
+        _abrirAba(2);
+      case Destino.locaisSeguros:
+        _abrirAba(3);
+      case Destino.kit:
+        _abrirAba(3, 1);
+      case Destino.sos:
+        _abrirAba(4);
+    }
+  }
+
+  void _abrirAba(int aba, [int sub = 0]) => setState(() {
+        _aba = aba;
+        _sub = sub;
+      });
+
   @override
   Widget build(BuildContext context) {
-    const titulos = ['Dilu', 'Clima', 'Abrigos e dicas', 'Emergência'];
-    const telas = <Widget>[
-      EnchentesScreen(),
-      ClimaScreen(),
-      SheltersScreen(),
-      SosScreen(),
-    ];
+    const titulos = ['Dilu', 'Enchentes', 'Clima', 'Locais seguros', 'Emergência'];
+    final tela = switch (_aba) {
+      0 => InicioScreen(nome: _nome, aoIr: _ir),
+      1 => EnchentesScreen(abaInicial: _sub),
+      2 => const ClimaScreen(),
+      3 => LocaisScreen(abaInicial: _sub),
+      _ => const SosScreen(),
+    };
     return Scaffold(
       appBar: AppBar(
         title: _aba == 0 ? const DiluLogo(tamanho: 32) : Text(titulos[_aba]),
@@ -136,17 +170,18 @@ class _HomeShellState extends State<HomeShell> {
           opacity: anim,
           child: SlideTransition(position: Tween(begin: const Offset(0, 0.015), end: Offset.zero).animate(anim), child: filho),
         ),
-        child: KeyedSubtree(key: ValueKey(_aba), child: telas[_aba]),
+        child: KeyedSubtree(key: ValueKey('$_aba/$_sub'), child: tela),
       ),
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(border: Border(top: BorderSide(color: kLinha))),
         child: NavigationBar(
           selectedIndex: _aba,
-          onDestinationSelected: (i) => setState(() => _aba = i),
+          onDestinationSelected: _abrirAba,
           destinations: const [
+            NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Início'),
             NavigationDestination(icon: Icon(Icons.flood_outlined), selectedIcon: Icon(Icons.flood), label: 'Enchentes'),
             NavigationDestination(icon: Icon(Icons.cloud_outlined), selectedIcon: Icon(Icons.cloud), label: 'Clima'),
-            NavigationDestination(icon: Icon(Icons.home_work_outlined), selectedIcon: Icon(Icons.home_work), label: 'Abrigos'),
+            NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'Seguros'),
             NavigationDestination(
               icon: Icon(Icons.crisis_alert_outlined, color: kBrasa),
               selectedIcon: Icon(Icons.crisis_alert, color: kBrasa),

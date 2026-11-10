@@ -11,7 +11,11 @@ import '../widgets.dart';
 /// Formulário para relatar um alagamento: local, gravidade, descrição e foto.
 class ReportScreen extends StatefulWidget {
   final LatLng inicial;
-  const ReportScreen({super.key, required this.inicial});
+
+  /// True quando [inicial] é a posição real do aparelho. Se for falso (sem GPS), a pessoa
+  /// precisa marcar o local no mapa antes de enviar, para não criar um relato no lugar errado.
+  final bool temGps;
+  const ReportScreen({super.key, required this.inicial, this.temGps = true});
 
   @override
   State<ReportScreen> createState() => _ReportScreenState();
@@ -19,6 +23,7 @@ class ReportScreen extends StatefulWidget {
 
 class _ReportScreenState extends State<ReportScreen> {
   late LatLng _local = widget.inicial;
+  late bool _localMarcado = widget.temGps;
   int _gravidade = 2;
   final _descricao = TextEditingController();
   final _picker = ImagePicker();
@@ -48,6 +53,10 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   Future<void> _enviar() async {
+    if (!_localMarcado) {
+      aviso(context, 'Toque no mapa para marcar onde está alagado.', erro: true);
+      return;
+    }
     setState(() => _enviando = true);
     try {
       await Api.registrarAlagamento(
@@ -76,30 +85,39 @@ class _ReportScreenState extends State<ReportScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text('1. Onde está alagado?', style: Theme.of(context).textTheme.titleMedium),
-          const Text('Toque no mapa para mover o marcador.'),
+          Text(
+            _localMarcado
+                ? 'Toque no mapa para mover o marcador.'
+                : 'Não temos a sua localização. Arraste o mapa e toque no ponto exato do alagamento.',
+            style: TextStyle(color: _localMarcado ? kTinta : kBrasa, fontWeight: _localMarcado ? FontWeight.w400 : FontWeight.w700),
+          ),
           const SizedBox(height: 8),
           SizedBox(
             height: 220,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(12),
               child: FlutterMap(
                 options: MapOptions(
                   initialCenter: _local,
-                  initialZoom: 16,
-                  onTap: (_, p) => setState(() => _local = p),
+                  initialZoom: _localMarcado ? 16 : 12,
+                  onTap: (_, p) => setState(() {
+                    _local = p;
+                    _localMarcado = true;
+                  }),
                 ),
                 children: [
                   camadaBase(context),
+                  if (_localMarcado)
+                    MarkerLayer(markers: [
+                      Marker(
+                        point: _local,
+                        width: 36,
+                        height: 51,
+                        alignment: Alignment.topCenter,
+                        child: MarcadorGota(cor: corGravidade(_gravidade), largura: 36),
+                      ),
+                    ]),
                   atribuicaoMapa(),
-                  MarkerLayer(markers: [
-                    Marker(
-                      point: _local,
-                      width: 48,
-                      height: 48,
-                      alignment: Alignment.topCenter,
-                      child: Icon(Icons.location_on, size: 48, color: corGravidade(_gravidade)),
-                    ),
-                  ]),
                 ],
               ),
             ),
@@ -111,8 +129,8 @@ class _ReportScreenState extends State<ReportScreen> {
             Card(
               color: _gravidade == g ? corGravidade(g).withValues(alpha: 0.15) : null,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: _gravidade == g ? corGravidade(g) : Colors.transparent, width: 2),
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: _gravidade == g ? corGravidade(g) : kLinha, width: _gravidade == g ? 2 : 1),
               ),
               child: ListTile(
                 onTap: () => setState(() => _gravidade = g),

@@ -1,8 +1,8 @@
 -- =====================================================================
 -- Dilu - 03_seed.sql
 -- Dados iniciais: bairros de Sao Paulo (coordenadas aproximadas do centro).
--- Nao ha abrigos ficticios: os abrigos vem dos moradores (locais do
--- OpenStreetMap marcados como "recebendo pessoas") ou de cadastro oficial.
+-- Nao ha dados ficticios: relatos, locais seguros e lugares sao criados
+-- pelos proprios moradores no app.
 -- =====================================================================
 
 INSERT INTO bairro (nome, cidade, uf, latitude, longitude) VALUES ('Pinheiros',        UNISTR('S\00E3o Paulo'), 'SP', -23.5670, -46.7020);

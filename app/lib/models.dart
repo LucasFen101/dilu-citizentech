@@ -59,147 +59,63 @@ class Alagamento {
       );
 }
 
-/// Abrigo funcionando agora: oficial ou marcado por moradores (com confirmações).
-class Abrigo {
+/// Tipos de local seguro (código no banco, nome e explicação para o morador).
+const tiposLocal = <(String, String, String)>[
+  ('PONTO_ALTO', 'Ponto alto', 'Lugar alto para deixar o carro ou se proteger da água'),
+  ('ACOLHIMENTO', 'Acolhe pessoas', 'Casa, igreja ou comércio que recebe quem precisa sair de casa'),
+  ('PONTO_ENCONTRO', 'Ponto de encontro', 'Onde a família ou os vizinhos combinam de se encontrar'),
+  ('DOACAO', 'Recebe doações', 'Recebe roupas, água, comida e itens de limpeza'),
+];
+
+String nomeTipoLocal(String tipo) => tiposLocal.firstWhere((t) => t.$1 == tipo, orElse: () => (tipo, tipo, '')).$2;
+
+/// Local seguro cadastrado pela comunidade, com os votos dos vizinhos.
+class LocalSeguro {
   final int id;
   final String nome;
-  final String? endereco;
+  final String tipo; // PONTO_ALTO, ACOLHIMENTO, PONTO_ENCONTRO, DOACAO
+  final String? descricao;
   final double latitude;
   final double longitude;
-  final int? capacidade;
-  final String? telefone;
   final String? bairro;
-  final double? distanciaKm;
-  final String origem; // OFICIAL ou COMUNIDADE
-  final String? tipo;
-  final String? refOsm; // liga o abrigo ao local do OpenStreetMap
-  final int confirmacoes;
-  final bool confirmadoPorMim;
-  final bool meu;
   final DateTime? criadoEm;
-  final DateTime? expiraEm;
+  final int votosSeguro;
+  final int votosInseguro;
+  final String? meuVoto; // S, N ou null (não votou)
+  final bool meu;
+  final double distanciaKm;
 
-  Abrigo({
+  LocalSeguro({
     required this.id,
-    required this.nome,
-    required this.latitude,
-    required this.longitude,
-    this.bairro,
-    this.endereco,
-    this.capacidade,
-    this.telefone,
-    this.distanciaKm,
-    this.origem = 'OFICIAL',
-    this.tipo,
-    this.refOsm,
-    this.confirmacoes = 0,
-    this.confirmadoPorMim = false,
-    this.meu = false,
-    this.criadoEm,
-    this.expiraEm,
-  });
-
-  bool get daComunidade => origem == 'COMUNIDADE';
-
-  factory Abrigo.fromJson(Map<String, dynamic> j) => Abrigo(
-        id: j['id_abrigo'] as int,
-        nome: j['nome'] as String,
-        endereco: j['endereco'] as String?,
-        latitude: _num(j['latitude']),
-        longitude: _num(j['longitude']),
-        capacidade: (j['capacidade'] as num?)?.toInt(),
-        telefone: j['telefone'] as String?,
-        bairro: j['bairro'] as String?,
-        distanciaKm: j['distancia_km'] == null ? null : _num(j['distancia_km']),
-        origem: (j['origem'] as String?) ?? 'OFICIAL',
-        tipo: j['tipo'] as String?,
-        refOsm: j['ref_osm'] as String?,
-        confirmacoes: (j['confirmacoes'] as num?)?.toInt() ?? 0,
-        confirmadoPorMim: (j['confirmado_por_mim'] as bool?) ?? false,
-        meu: (j['meu'] as bool?) ?? false,
-        criadoEm: _data(j['criado_em']),
-        expiraEm: _data(j['expira_em']),
-      );
-}
-
-/// Local que costuma virar abrigo em enchentes (escola, ginásio, centro comunitário),
-/// vindo do OpenStreetMap. Não é abrigo confirmado: é onde a Defesa Civil costuma abrir.
-class LocalApoio {
-  final String refOsm; // ex.: node/123 ou way/456
-  final String nome;
-  final String tipo; // rótulo em português
-  final String? endereco;
-  final double latitude;
-  final double longitude;
-  final int prioridade; // 0 = ginásio/CEU/centro comunitário, 1 = escola pública, 2 = outras escolas
-  double distanciaKm;
-
-  LocalApoio({
-    required this.refOsm,
     required this.nome,
     required this.tipo,
     required this.latitude,
     required this.longitude,
-    required this.prioridade,
-    this.endereco,
-    this.distanciaKm = 0,
+    required this.distanciaKm,
+    this.descricao,
+    this.bairro,
+    this.criadoEm,
+    this.votosSeguro = 0,
+    this.votosInseguro = 0,
+    this.meuVoto,
+    this.meu = false,
   });
-}
 
-// escolas que não servem de abrigo (cursos livres, idiomas, autoescola...)
-final _naoAbrigo = RegExp(
-    r'idioma|ingl[eê]s|english|yazigi|wizard|\bcna\b|fisk|autoescola|auto escola|m[uú]sica|dan[cç]a|kumon|ballet|bal[eé]|'
-    r'cursinho|pr[eé]-vestibular|inform[aá]tica|beleza|cabeleireir|nata[cç][aã]o|idiomas|language|\bccaa\b',
-    caseSensitive: false);
-
-final _escolaPublica = RegExp(
-    r'^(e\.? ?e\.?|ee\b|e\.?m\.?e\.?f|emef|emei|emeb|e\.?m\.?|ceu\b|cei\b|etec|fatec|escola estadual|escola municipal|'
-    r'col[eé]gio estadual|col[eé]gio municipal|instituto federal|if[a-z]{0,3}\b|escola t[eé]cnica estadual|creche municipal)',
-    caseSensitive: false);
-
-/// Lê a resposta do Overpass (OpenStreetMap) e devolve os locais úteis, sem repetidos.
-List<LocalApoio> lerLocaisApoio(Map<String, dynamic> json) {
-  final vistos = <String>{};
-  final lista = <LocalApoio>[];
-  for (final e in (json['elements'] as List).cast<Map<String, dynamic>>()) {
-    final tags = (e['tags'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final nome = (tags['name'] as String?)?.trim();
-    if (nome == null || nome.isEmpty || _naoAbrigo.hasMatch(nome)) continue;
-    final lat = (e['lat'] ?? (e['center'] as Map?)?['lat']) as num?;
-    final lon = (e['lon'] ?? (e['center'] as Map?)?['lon']) as num?;
-    if (lat == null || lon == null) continue;
-    if (!vistos.add(nome.toLowerCase())) continue; // mesmo local mapeado como ponto e como área
-
-    final amenity = tags['amenity'] as String?;
-    final leisure = tags['leisure'] as String?;
-    final String tipo;
-    final int prioridade;
-    if (leisure == 'sports_centre' || leisure == 'sports_hall' || RegExp(r'gin[aá]sio|ceu\b', caseSensitive: false).hasMatch(nome)) {
-      tipo = 'Ginásio / esportes';
-      prioridade = 0;
-    } else if (amenity == 'community_centre') {
-      tipo = 'Centro comunitário';
-      prioridade = 0;
-    } else if (_escolaPublica.hasMatch(nome)) {
-      tipo = 'Escola pública';
-      prioridade = 1;
-    } else {
-      tipo = 'Escola';
-      prioridade = 2;
-    }
-    final rua = tags['addr:street'] as String?;
-    final numero = tags['addr:housenumber'] as String?;
-    lista.add(LocalApoio(
-      refOsm: '${e['type']}/${e['id']}',
-      nome: nome,
-      tipo: tipo,
-      endereco: rua == null ? null : (numero == null ? rua : '$rua, $numero'),
-      latitude: lat.toDouble(),
-      longitude: lon.toDouble(),
-      prioridade: prioridade,
-    ));
-  }
-  return lista;
+  factory LocalSeguro.fromJson(Map<String, dynamic> j) => LocalSeguro(
+        id: j['id_local'] as int,
+        nome: j['nome'] as String,
+        tipo: j['tipo'] as String,
+        descricao: j['descricao'] as String?,
+        latitude: _num(j['latitude']),
+        longitude: _num(j['longitude']),
+        bairro: j['bairro'] as String?,
+        criadoEm: _data(j['criado_em']),
+        votosSeguro: (j['votos_seguro'] as num?)?.toInt() ?? 0,
+        votosInseguro: (j['votos_inseguro'] as num?)?.toInt() ?? 0,
+        meuVoto: j['meu_voto'] as String?,
+        meu: (j['meu'] as bool?) ?? false,
+        distanciaKm: _num(j['distancia_km']),
+      );
 }
 
 /// Indicadores de risco de um bairro (vem da view do Oracle).
@@ -211,7 +127,7 @@ class Bairro {
   final int alagamentosAtivos;
   final int relatos24h;
   final int pedidosAbertos;
-  final int abrigos;
+  final int locaisSeguros;
 
   Bairro({
     required this.id,
@@ -221,7 +137,7 @@ class Bairro {
     required this.alagamentosAtivos,
     required this.relatos24h,
     required this.pedidosAbertos,
-    required this.abrigos,
+    required this.locaisSeguros,
   });
 
   factory Bairro.fromJson(Map<String, dynamic> j) => Bairro(
@@ -232,7 +148,7 @@ class Bairro {
         alagamentosAtivos: (j['alagamentos_ativos'] as num).toInt(),
         relatos24h: (j['relatos_24h'] as num).toInt(),
         pedidosAbertos: (j['pedidos_abertos'] as num).toInt(),
-        abrigos: (j['abrigos'] as num).toInt(),
+        locaisSeguros: (j['locais_seguros'] as num).toInt(),
       );
 }
 
@@ -301,8 +217,98 @@ class ResultadoEmergencia {
   final int idPedido;
   final String nomeUsuario;
   final List<Contato> contatos;
+  final String? bairro; // bairro cujos moradores foram avisados (null = nenhum)
 
-  ResultadoEmergencia({required this.idPedido, required this.nomeUsuario, required this.contatos});
+  ResultadoEmergencia({required this.idPedido, required this.nomeUsuario, required this.contatos, this.bairro});
+}
+
+/// Texto da mensagem que vai para os contatos de confiança (WhatsApp).
+/// Sem [link] (sem GPS), a mensagem avisa que a localização não foi obtida.
+String mensagemEmergencia({required bool pedirAjuda, required String nome, String? link}) {
+  if (!pedirAjuda) return 'DILU: $nome está em segurança. Pode ficar tranquilo(a).';
+  return link != null
+      ? 'ALERTA DILU: $nome precisa de ajuda por causa de alagamento. Localização: $link'
+      : 'ALERTA DILU: $nome precisa de ajuda por causa de alagamento. '
+          'O celular não conseguiu enviar a localização: ligue para confirmar onde a pessoa está.';
+}
+
+/// Itens do kit de emergência (checklist de preparo, salvo no aparelho).
+const itensKit = <String>[
+  'Documentos e algum dinheiro em saco plástico',
+  'Remédios de uso contínuo e receitas',
+  'Água potável e comida que não estraga',
+  'Lanterna e pilhas',
+  'Carregador portátil carregado',
+  'Roupas secas e cobertor',
+  'Itens de higiene, de bebê e de idoso',
+  'Telefones anotados em papel (família, 199, 193)',
+];
+
+/// Frase principal da tela Início para cada nível de risco no ponto do morador.
+String fraseRisco(String nivel) => switch (nivel) {
+      'CRITICO' => 'Risco muito alto de enchente por aqui.',
+      'ALTO' => 'Risco alto de alagamento por aqui.',
+      'MODERADO' => 'Atenção: pode alagar por aqui.',
+      _ => 'Sem sinal de enchente por aqui.',
+    };
+
+/// Orientação curta para cada nível de risco.
+String orientacaoRisco(String nivel) => switch (nivel) {
+      'CRITICO' => 'Saia de áreas baixas agora, leve o carro para um ponto alto e ligue 199 se a água subir.',
+      'ALTO' => 'Evite baixadas e margens de rios. Deixe documentos e remédios à mão.',
+      'MODERADO' => 'Pode haver alagamentos pontuais. Acompanhe a chuva e os relatos da vizinhança.',
+      _ => 'Nada preocupante pela chuva recente e prevista.',
+    };
+
+/// Retrato da tela Início guardado no aparelho: é o que aparece na hora ao abrir
+/// o app e o que continua visível se a internet cair (com a hora dos dados).
+class RetratoInicio {
+  final DateTime quando;
+  final String local;
+  final String nivel;
+  final double chuva3dias; // mm já caídos (3 dias)
+  final double chuvaPrevista; // mm previstos (hoje + 2 dias)
+  final List<AlertaClima> alertas;
+
+  RetratoInicio({
+    required this.quando,
+    required this.local,
+    required this.nivel,
+    required this.chuva3dias,
+    required this.chuvaPrevista,
+    this.alertas = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+        'quando': quando.toIso8601String(),
+        'local': local,
+        'nivel': nivel,
+        'chuva3dias': chuva3dias,
+        'chuvaPrevista': chuvaPrevista,
+        'alertas': [
+          for (final a in alertas) [a.titulo, a.mensagem, a.nivel],
+        ],
+      };
+
+  /// Null se o texto salvo estiver ausente ou corrompido.
+  static RetratoInicio? fromJson(dynamic j) {
+    try {
+      final m = j as Map<String, dynamic>;
+      return RetratoInicio(
+        quando: DateTime.parse(m['quando'] as String),
+        local: m['local'] as String,
+        nivel: m['nivel'] as String,
+        chuva3dias: _num(m['chuva3dias']),
+        chuvaPrevista: _num(m['chuvaPrevista']),
+        alertas: [
+          for (final a in (m['alertas'] as List? ?? const []))
+            AlertaClima((a as List)[0] as String, a[1] as String, a[2] as String),
+        ],
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// Previsão de chuva (Open-Meteo) para as próximas horas.
@@ -363,6 +369,79 @@ class Clima {
   final Calor calor;
   final QualidadeAr? ar;
   Clima({required this.chuva, required this.calor, this.ar});
+}
+
+/// Lugar que o morador acompanha (casa, trabalho, faculdade...).
+class Lugar {
+  final int id;
+  final String apelido;
+  final String tipo; // CASA, TRABALHO, ESTUDO, FAMILIA, OUTRO
+  final double latitude;
+  final double longitude;
+  final String? bairro;
+
+  Lugar({required this.id, required this.apelido, required this.tipo, required this.latitude, required this.longitude, this.bairro});
+
+  factory Lugar.fromJson(Map<String, dynamic> j) => Lugar(
+        id: j['id_lugar'] as int,
+        apelido: j['apelido'] as String,
+        tipo: j['tipo'] as String,
+        latitude: _num(j['latitude']),
+        longitude: _num(j['longitude']),
+        bairro: j['bairro'] as String?,
+      );
+}
+
+/// Chuva que já caiu (última 1h, 3h, 6h e 24h) e a prevista para as próximas 6h.
+class ChuvaAcumulada {
+  final double h1, h3, h6, h24, proximas6h;
+  ChuvaAcumulada({required this.h1, required this.h3, required this.h6, required this.h24, required this.proximas6h});
+
+  /// Nível de atenção: chuva acumulada alta encharca o solo e enche os rios.
+  String get nivel {
+    if (h24 >= 80 || h3 >= 40 || h1 >= 25) return 'CRITICO';
+    if (h24 >= 50 || h3 >= 25 || h1 >= 15) return 'ALTO';
+    if (h24 >= 25 || h3 >= 10 || h1 >= 5 || proximas6h >= 15) return 'MODERADO';
+    return 'BAIXO';
+  }
+}
+
+/// Soma a chuva por hora do Open-Meteo. Cada valor horário é a chuva da hora que
+/// TERMINA naquele horário; [agora] é o horário atual no mesmo formato (texto ISO local).
+ChuvaAcumulada chuvaAcumuladaDe(List<String> horarios, List<double> mm, String agora) {
+  // última hora completa: o maior horário que não passa de agora
+  var k = -1;
+  for (var i = 0; i < horarios.length; i++) {
+    if (horarios[i].compareTo(agora) <= 0) k = i;
+  }
+  double soma(int de, int ate) {
+    var s = 0.0;
+    for (var i = de; i <= ate; i++) {
+      if (i >= 0 && i < mm.length) s += mm[i];
+    }
+    return s;
+  }
+
+  return ChuvaAcumulada(
+    h1: soma(k, k),
+    h3: soma(k - 2, k),
+    h6: soma(k - 5, k),
+    h24: soma(k - 23, k),
+    proximas6h: soma(k + 1, k + 6),
+  );
+}
+
+/// Alerta quando a chuva que já caiu (ou a prevista em 6h) é alta. Null se está tudo bem.
+AlertaClima? alertaChuvaAcumulada(ChuvaAcumulada c) {
+  if (c.nivel == 'BAIXO') return null;
+  final jaChoveu = c.h24 >= 1;
+  return AlertaClima(
+    c.nivel == 'MODERADO' ? 'Chuva acumulando' : 'Muita chuva acumulada',
+    '${jaChoveu ? 'Já choveu ${c.h24.round()} mm nas últimas 24h' : 'Pouca chuva até agora'}'
+        '${c.proximas6h >= 1 ? ' e há mais ${c.proximas6h.round()} mm previstos nas próximas 6h' : ''}. '
+        'Com o solo encharcado, ruas e córregos enchem mais rápido.',
+    c.nivel,
+  );
 }
 
 /// Previsão de um dia (para o gráfico de 7 dias da cidade).

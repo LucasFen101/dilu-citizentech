@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:alerta_enchente/cidades_br.dart';
 import 'package:alerta_enchente/clima_grade.dart';
 import 'package:alerta_enchente/models.dart';
@@ -245,22 +247,83 @@ void main() {
       expect(quadros.first.hora.isBefore(quadros.last.hora), isTrue);
     });
   });
-  test('locais de abrigo do OpenStreetMap: filtra, classifica e tira repetidos', () {
-    final l = lerLocaisApoio({
-      'elements': [
-        {'type': 'way', 'id': 1, 'center': {'lat': -23.55, 'lon': -46.60}, 'tags': {'amenity': 'school', 'name': 'E.M.E.F. Fábio da Silva Prado', 'addr:street': 'Rua Taquari', 'addr:housenumber': '459'}},
-        {'type': 'node', 'id': 2, 'lat': -23.55, 'lon': -46.60, 'tags': {'amenity': 'school', 'name': 'E.M.E.F. Fábio da Silva Prado'}},
-        {'type': 'node', 'id': 3, 'lat': -23.56, 'lon': -46.61, 'tags': {'amenity': 'school', 'name': 'Escola de Idiomas'}},
-        {'type': 'node', 'id': 4, 'lat': -23.56, 'lon': -46.61, 'tags': {'amenity': 'school'}},
-        {'type': 'way', 'id': 5, 'center': {'lat': -23.57, 'lon': -46.62}, 'tags': {'leisure': 'sports_centre', 'name': 'Clube Escola Mooca'}},
-        {'type': 'node', 'id': 6, 'lat': -23.58, 'lon': -46.63, 'tags': {'amenity': 'school', 'name': 'Colégio Dr. Walter Belian'}},
-      ],
+  test('local seguro: lê a resposta da API e dá nome ao tipo', () {
+    final l = LocalSeguro.fromJson({
+      'id_local': 7,
+      'nome': 'Estacionamento do mercado (piso 2)',
+      'tipo': 'PONTO_ALTO',
+      'descricao': null,
+      'latitude': -23.556,
+      'longitude': -46.599,
+      'criado_em': '2026-11-09T10:00:00',
+      'bairro': 'Mooca',
+      'votos_seguro': 3,
+      'votos_inseguro': 1,
+      'meu_voto': 'S',
+      'meu': false,
+      'distancia_km': 0.33,
     });
-    expect(l.map((e) => e.nome), ['E.M.E.F. Fábio da Silva Prado', 'Clube Escola Mooca', 'Colégio Dr. Walter Belian']);
-    expect(l[0].tipo, 'Escola pública');
-    expect(l[0].refOsm, 'way/1');
-    expect(l[0].endereco, 'Rua Taquari, 459');
-    expect(l[1].prioridade, 0);
-    expect(l[2].tipo, 'Escola');
+    expect(l.tipo, 'PONTO_ALTO');
+    expect(nomeTipoLocal(l.tipo), 'Ponto alto');
+    expect(l.votosSeguro, 3);
+    expect(l.meuVoto, 'S');
+    expect(l.distanciaKm, closeTo(0.33, 1e-9));
+    expect(tiposLocal.map((t) => t.$1), ['PONTO_ALTO', 'ACOLHIMENTO', 'PONTO_ENCONTRO', 'DOACAO']);
+  });
+
+  test('chuva acumulada: soma as horas certas e classifica', () {
+    final horas = [for (var h = 0; h < 48; h++) '2026-11-${h < 24 ? '08' : '09'}T${(h % 24).toString().padLeft(2, '0')}:00'];
+    final mm = List<double>.filled(48, 0);
+    mm[30] = 4; // 09/11 06h (agora)
+    mm[29] = 3; mm[28] = 3; // 05h e 04h
+    mm[5] = 20; // 08/11 05h: 25h antes, nao entra
+    mm[31] = 2; mm[36] = 5; // proximas 6h
+    final c = chuvaAcumuladaDe(horas, mm, '2026-11-09T06:15');
+    expect(c.h1, 4);
+    expect(c.h3, 10);
+    expect(c.h24, 10);
+    expect(c.proximas6h, 7);
+    expect(c.nivel, 'MODERADO'); // 10 mm em 3h
+    expect(alertaChuvaAcumulada(c)!.titulo, 'Chuva acumulando');
+    expect(chuvaAcumuladaDe(horas, List.filled(48, 0), '2026-11-09T06:15').nivel, 'BAIXO');
+  });
+  group('início, SOS e kit', () {
+    test('retrato do Início vai e volta do texto salvo', () {
+      final r = RetratoInicio(
+        quando: DateTime(2026, 11, 9, 14, 30),
+        local: 'Curitiba · PR',
+        nivel: 'ALTO',
+        chuva3dias: 62.4,
+        chuvaPrevista: 48,
+        alertas: [AlertaClima('Chuva forte prevista', 'Até 30 mm nas próximas 12h.', 'ALTO')],
+      );
+      final lido = RetratoInicio.fromJson(jsonDecode(jsonEncode(r.toJson())))!;
+      expect(lido.quando, r.quando);
+      expect(lido.local, 'Curitiba · PR');
+      expect(lido.nivel, 'ALTO');
+      expect(lido.chuva3dias, 62.4);
+      expect(lido.alertas.single.titulo, 'Chuva forte prevista');
+      // texto salvo corrompido não derruba o app
+      expect(RetratoInicio.fromJson({'quando': 'ontem'}), isNull);
+      expect(RetratoInicio.fromJson('lixo'), isNull);
+    });
+
+    test('mensagem de emergência nunca leva localização inventada', () {
+      final comGps = mensagemEmergencia(pedirAjuda: true, nome: 'Ana', link: 'https://www.google.com/maps?q=-23.5,-46.6');
+      expect(comGps, contains('https://www.google.com/maps?q=-23.5,-46.6'));
+      final semGps = mensagemEmergencia(pedirAjuda: true, nome: 'Ana');
+      expect(semGps, isNot(contains('maps')));
+      expect(semGps, contains('não conseguiu enviar a localização'));
+      expect(mensagemEmergencia(pedirAjuda: false, nome: 'Ana'), contains('em segurança'));
+    });
+
+    test('cada nível de risco tem frase e orientação próprias', () {
+      for (final n in niveisRisco) {
+        expect(fraseRisco(n), isNotEmpty);
+        expect(orientacaoRisco(n), isNotEmpty);
+      }
+      expect({for (final n in niveisRisco) fraseRisco(n)}.length, 4);
+      expect(itensKit.length, 8);
+    });
   });
 }
