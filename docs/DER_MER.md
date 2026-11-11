@@ -25,6 +25,73 @@ querem acompanhar. O sistema **avisa** os moradores e guarda o **histórico de r
 | **NOTIFICACAO** | Aviso gerado pelo banco para um morador |
 | **HISTORICO_RISCO** | Registro de cada mudança de nível de risco de um bairro |
 
+### Diagrama do MER
+
+Retângulos são **entidades**, losangos são **relacionamentos** e os números são as **cardinalidades**
+(`1` um, `N` e `M` muitos). Os relacionamentos *confirma* e *avalia* são N:M: no banco viram as tabelas
+`CONFIRMACAO_ALAGAMENTO` e `AVALIACAO_LOCAL`, por isso o MER tem 9 entidades e o banco tem 11 tabelas.
+Os atributos de cada entidade estão no DER (seção 2). Imagem pronta: [`MER.png`](MER.png).
+
+```mermaid
+flowchart LR
+    classDef ent fill:#F4EFE6,stroke:#0F2A2E,stroke-width:2px,color:#0F2A2E,font-weight:bold
+    classDef rel fill:#FFE3D6,stroke:#FF6B35,stroke-width:2px,color:#0F2A2E
+
+    BAIRRO[BAIRRO]:::ent
+    USUARIO[USUARIO]:::ent
+    CONTATO[CONTATO_EMERGENCIA]:::ent
+    ALAG[ALAGAMENTO]:::ent
+    PEDIDO[PEDIDO_AJUDA]:::ent
+    LOCAL[LOCAL_SEGURO]:::ent
+    LUGAR[LUGAR_USUARIO]:::ent
+    NOTIF[NOTIFICACAO]:::ent
+    HIST[HISTORICO_RISCO]:::ent
+
+    r1{abriga}:::rel
+    r2{tem}:::rel
+    r3{relata}:::rel
+    r4{ocorre em}:::rel
+    r5{confirma}:::rel
+    r6{faz}:::rel
+    r7{referente a}:::rel
+    r8{indica}:::rel
+    r9{contém}:::rel
+    r10{avalia}:::rel
+    r11{salva}:::rel
+    r12{localiza}:::rel
+    r13{recebe}:::rel
+    r14{registra}:::rel
+
+    BAIRRO -- "1" --- r1
+    r1 -- "N" --- USUARIO
+    USUARIO -- "1" --- r2
+    r2 -- "N (até 5)" --- CONTATO
+    USUARIO -- "1" --- r3
+    r3 -- "N" --- ALAG
+    BAIRRO -- "1" --- r4
+    r4 -- "N" --- ALAG
+    USUARIO -- "N" --- r5
+    r5 -- "M" --- ALAG
+    USUARIO -- "1" --- r6
+    r6 -- "N" --- PEDIDO
+    BAIRRO -- "1" --- r7
+    r7 -- "N" --- PEDIDO
+    USUARIO -- "1" --- r8
+    r8 -- "N" --- LOCAL
+    BAIRRO -- "1" --- r9
+    r9 -- "N" --- LOCAL
+    USUARIO -- "N" --- r10
+    r10 -- "M" --- LOCAL
+    USUARIO -- "1" --- r11
+    r11 -- "N (até 5)" --- LUGAR
+    BAIRRO -- "1" --- r12
+    r12 -- "N" --- LUGAR
+    USUARIO -- "1" --- r13
+    r13 -- "N" --- NOTIF
+    BAIRRO -- "1" --- r14
+    r14 -- "N" --- HIST
+```
+
 ### Relacionamentos e cardinalidades
 
 | Relacionamento | Cardinalidade | Regra |

@@ -196,7 +196,8 @@ PASSO 5 - Testes
   app/        lib/                  código do aplicativo Flutter
               lib/screens/          as telas
               test/                 testes do app
-  docs/       DER_MER.md, DER.png   modelo de dados
+  docs/       DER_MER.md, MER.png, DER.png   modelo de dados
+              TELAS.md, telas/      prints do aplicativo
               GERENCIAMENTO_DE_MEMORIA.md
               DESCRICAO_DO_CODIGO.md   classes, funções e métodos
               TECNOLOGIAS.md        tecnologias e benefícios
@@ -205,8 +206,10 @@ PASSO 5 - Testes
 ---------------------------------------------------------------------
 6. DOCUMENTAÇÃO
 ---------------------------------------------------------------------
-  docs/DER_MER.md                  MER, DER (também em docs/DER.png),
-                                   chaves, índices, views, normalização
+  docs/DER_MER.md                  MER e DER (também como imagem, em
+                                   docs/MER.png e docs/DER.png), chaves,
+                                   índices, views, normalização
+  docs/TELAS.md                    prints de todas as telas do app
   docs/GERENCIAMENTO_DE_MEMORIA.md como o projeto usa memória e outros
                                    recursos no banco, na API e no app
   docs/DESCRICAO_DO_CODIGO.md      descrição de cada função, método e
