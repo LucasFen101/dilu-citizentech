@@ -196,7 +196,8 @@ PASSO 5 - Testes
   app/        lib/                  código do aplicativo Flutter
               lib/screens/          as telas
               test/                 testes do app
-  docs/       DER_MER.md, MER.png, DER.png   modelo de dados
+  docs/       Documentacao_Dilu.docx e .pdf  documentação completa
+              DER_MER.md, MER.png, DER.png   modelo de dados
               TELAS.md, telas/      prints do aplicativo
               GERENCIAMENTO_DE_MEMORIA.md
               DESCRICAO_DO_CODIGO.md   classes, funções e métodos
@@ -206,6 +207,8 @@ PASSO 5 - Testes
 ---------------------------------------------------------------------
 6. DOCUMENTAÇÃO
 ---------------------------------------------------------------------
+  docs/Documentacao_Dilu.docx      TODA a documentação num só arquivo
+  docs/Documentacao_Dilu.pdf       (Word e PDF, 48 páginas, com sumário)
   docs/DER_MER.md                  MER e DER (também como imagem, em
                                    docs/MER.png e docs/DER.png), chaves,
                                    índices, views, normalização
