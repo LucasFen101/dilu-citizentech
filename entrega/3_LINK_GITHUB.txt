@@ -1,0 +1,14 @@
+Global Solution 2 - CitizenTech (FIAP)
+Aluno: Lucas Fen Avelino - RM 556647
+Projeto: Dilu - Avise antes que a água chegue
+
+Repositório GitHub (código-fonte, README e modelo de dados):
+https://github.com/LucasFen101/dilu-citizentech
+
+Onde está cada coisa no repositório:
+- README.txt  (instruções de execução e justificativas técnicas)
+- docs/DER_MER.md, docs/MER.png, docs/DER.png  (modelo de dados)
+- docs/GERENCIAMENTO_DE_MEMORIA.md
+- docs/DESCRICAO_DO_CODIGO.md  (funções, métodos e classes)
+- docs/TECNOLOGIAS.md  (tecnologias adotadas e benefícios)
+- database/  (scripts Oracle e PL/SQL)
